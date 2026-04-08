@@ -8,13 +8,13 @@ def print_email(fpath, fields, header, fw):
   os.getcwd()
   with open(fpath, 'rb') as f:
     lines = f.readlines()
-  data = defaultdict(lambda: b'')
+  data = defaultdict(list)
   for line in lines:
     for field in fields:
       if line.startswith(field):
-        data[field.strip(b': ')] = line.strip()[len(field):]
+        data[field.strip(b': ')].append(line.strip()[len(field):])
   for h in header:
-    fw.write(b'--'+data[h]+b',')
+    fw.write(b'--'+b'||'.join(data[h])+b',')
   fw.write(fpath.encode('utf8')+b'\n')
 
 if __name__ == '__main__':
