@@ -4,7 +4,9 @@ import sys
 import os
 from collections import defaultdict
 
-def print_email(fpath, fields, header, fw):
+import pandas as pd
+
+def print_email(fpath, fields, header, df):
   os.getcwd()
   with open(fpath, 'rb') as f:
     lines = f.readlines()
@@ -13,18 +15,20 @@ def print_email(fpath, fields, header, fw):
     for field in fields:
       if line.startswith(field):
         data[field.strip(b': ')].append(line.strip()[len(field):])
-  for h in header:
-    fw.write(b'--'+b'||'.join(data[h])+b',')
-  fw.write(fpath.encode('utf8')+b'\n')
+  data[b'fpath'] = fpath.encode('utf8')
+  d = pd.DataFrame([data])
+  return pd.concat([df, d])
 
 if __name__ == '__main__':
   root_dir = sys.argv[1]
   fields = [b'Subject: ', b'From: ', b'Date: ', b'X-Mailer: ', b'To: ']
-  with open('report.csv', 'wb+') as fw:
-    header = [f.strip(b': ') for f in fields]
-    fw.write(b','.join(header)+b',fpath\n')
+  header = [f.strip(b': ') for f in fields]
+  df = pd.DataFrame()
+  try:
     for root, dirs, files in os.walk(root_dir):
       for file in files:
         fpath = os.path.join(root, file)
         print(f'file path: {fpath}')
-        print_email(fpath, fields, header, fw)
+        df = print_email(fpath, fields, header, df)
+  finally:
+    df.to_parquet('report.parquet')
