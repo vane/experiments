@@ -48,3 +48,30 @@ curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr11;st
 ```bash
 curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr11;start=89230507;end=89230607" > data/rs1042602.json
 ```
+
+## Nose Morphology
+
+### Nose Wing Breadth (rs927833)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr20;start=22060888;end=22060989" > data/rs927833.json
+```
+
+### Nose Protrusion (rs2045323)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr4;start=153910696;end=153910797" > data/rs2045323.json
+```
+
+### Columella Inclination (rs12644248)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr4;start=154314189;end=154314290" > data/rs12644248.json
+```
+
+### Nose Width (rs2206437)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr20;start=4863897;end=4863998" > data/rs2206437.json
+```
+
+### Nose Length (rs647711)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr1;start=116167613;end=116167714" > data/rs647711.json
+```

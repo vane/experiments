@@ -1,18 +1,24 @@
 # CRISPR Eye Color Modification Template
 
-This project provides a template R/Shiny application for designing CRISPR/Cas9 guide RNAs (gRNAs) to modify human eye color at the genetic level.
+This project provides a template R/Shiny application for designing CRISPR/Cas9 guide RNAs (gRNAs) to modify human physical traits (eye color and nose morphology) at the genetic level.
 
 ## Biological Context
 
-Eye color is primarily determined by the expression levels of the `OCA2` gene. A critical regulatory element for `OCA2` is located in an intron of the neighboring `HERC2` gene. Specifically, the Single Nucleotide Polymorphism (SNP) **rs12913832** (chr15:28,120,472 in hg38) acts as an enhancer:
-- **Allele A (or T):** Associated with brown eyes (higher `OCA2` expression).
-- **Allele G (or C):** Associated with blue eyes (lower `OCA2` expression).
+### Eye Color
+Eye color is primarily determined by the expression levels of the `OCA2` gene. A critical regulatory element for `OCA2` is located in an intron of the neighboring `HERC2` gene. Specifically, the Single Nucleotide Polymorphism (SNP) **rs12913832** acts as an enhancer.
 
-By using CRISPR/Cas9 (or more advanced tools like Base Editors), one can theoretically target this site to modulate `OCA2` expression and thus influence the phenotype.
+### Nose Morphology
+Facial morphology, including nose size and shape, is a complex polygenic trait. Several genes have been identified as key regulators:
+- **PAX1**: Associated with nose wing breadth.
+- **DCHS2**: Influences nose protrusion and columella inclination.
+- **DHX35**: Associated with nose width.
+- **IGSF3**: Associated with nose length.
 
 ## Application Features
 
-- **Multi-Target Support:** Supports designing guides for Brown/Blue (rs12913832), Dark Brown (rs1800401), Green (rs12203592), Hazel (rs1800407), Amber (rs1540771), Grey (rs12896399), Light Blue (rs16891982), Blue/Green (rs1393350), and Red/Albinism (rs1042602).
+- **Multi-Trait Support:** 
+  - **Eye Color:** Brown/Blue, Dark Brown, Green, Hazel, Amber, Grey, Light Blue, Blue/Green, and Red/Albinism.
+  - **Nose Morphology:** Wing Breadth, Protrusion, Columella Inclination, Width, and Length.
 - **Data Persistence:** Genomic sequences are stored as JSON artifacts in the `data/` directory.
 - **Sequence Visualization:** Displays the genomic context and highlights the target SNP for each locus.
 - **gRNA Design:** Uses the Bioconductor `Biostrings` library to search for "NGG" PAM sites and design custom length guides.
@@ -24,7 +30,7 @@ To run this application, you need R installed with the following libraries:
 
 ### CRAN Libraries
 ```R
-install.packages("shiny")
+install.packages(c("shiny", "bslib"))
 ```
 
 ### Bioconductor Libraries
@@ -32,7 +38,7 @@ install.packages("shiny")
 if (!require("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
 
-BiocManager::install(c("Biostrings", "GenomicRanges"))
+BiocManager::install(c("Biostrings", "IRanges"))
 ```
 
 ### Verification Script
@@ -55,6 +61,8 @@ Rscript test_logic.R
 
 The following genomic sequences were fetched from the UCSC Genome Browser (hg38) and are stored in the `data/` directory. Detailed `curl` commands used for fetching are available in [CURL.md](CURL.md).
 
+### Eye Color Targets
+
 | Phenotype | SNP ID | Chromosome | Position (hg38) | Artifact File |
 |-----------|--------|------------|-----------------|---------------|
 | Brown/Blue| rs12913832 | chr15 | 28,120,472 | `data/rs12913832.json` |
@@ -66,6 +74,16 @@ The following genomic sequences were fetched from the UCSC Genome Browser (hg38)
 | Light Blue| rs16891982 | chr5 | 33,951,556 | `data/rs16891982.json` |
 | Blue/Green| rs1393350 | chr11 | 89,010,977 | `data/rs1393350.json` |
 | Red | rs1042602 | chr11 | 89,230,557 | `data/rs1042602.json` |
+
+### Nose Morphology Targets
+
+| Trait | SNP ID | Chromosome | Position (hg38) | Artifact File |
+|-------|--------|------------|-----------------|---------------|
+| Wing Breadth | rs927833 | chr20 | 22,060,939 | `data/rs927833.json` |
+| Protrusion | rs2045323 | chr4 | 153,910,747 | `data/rs2045323.json` |
+| Columella Incl. | rs12644248 | chr4 | 154,314,240 | `data/rs12644248.json` |
+| Nose Width | rs2206437 | chr20 | 4,863,948 | `data/rs2206437.json` |
+| Nose Length | rs647711 | chr1 | 116,167,664 | `data/rs647711.json` |
 
 ## Disclaimer
 

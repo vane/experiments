@@ -18,7 +18,7 @@ design_guides <- function(sequence, pam = "NGG", guide_len = 20) {
   fwd_guides <- data.frame(
     Start = IRanges::start(matches_fwd) - guide_len,
     End = IRanges::end(matches_fwd),
-    Strand = "+",
+    Strand = rep("+", length(matches_fwd)),
     stringsAsFactors = FALSE
   )
   
@@ -38,7 +38,7 @@ design_guides <- function(sequence, pam = "NGG", guide_len = 20) {
   rev_guides <- data.frame(
     Start = IRanges::start(matches_rev),
     End = IRanges::end(matches_rev) + guide_len,
-    Strand = "-",
+    Strand = rep("-", length(matches_rev)),
     stringsAsFactors = FALSE
   )
   

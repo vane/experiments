@@ -1,4 +1,4 @@
-# CRISPR Eye Color Modification Template
+# CRISPR Genomic Modification Template
 library(shiny)
 source("utils.R")
 
@@ -74,20 +74,62 @@ targets <- list(
     locus = "chr11:89,230,557 (hg38)",
     snp_id = "rs1042602 (TYR)",
     phenotype = "Associated with oculocutaneous albinism (Reddish/Pink eyes)."
+  ),
+  # Nose targets
+  "Nose Wing Breadth" = list(
+    seq = "ATCTCTTTATGGGTGCTCTTCAGGGGTATCTTTTCAGGGTTCTTGGTCAGCTGGTAAGTGTTACAATAATATCTCTTTTGAATATGTAACTATTATGCATT",
+    snp_pos = 52,
+    locus = "chr20:22,060,939 (hg38)",
+    snp_id = "rs927833 (PAX1)",
+    phenotype = "Associated with nose wing breadth."
+  ),
+  "Nose Protrusion" = list(
+    seq = "GCTTATCACCAACTTTATGAAACTTACTGACTCTAAGTAGAGAACGAGCCGGTCAGGTTTCAAGTTTTTCTTAAATGTCAATATTCTAAAAAAGAAAGCTG",
+    snp_pos = 52,
+    locus = "chr4:153,910,747 (hg38)",
+    snp_id = "rs2045323 (DCHS2)",
+    phenotype = "Associated with nose protrusion and tip angle."
+  ),
+  "Columella Inclination" = list(
+    seq = "TCAGCAATAAGTTCAGTATATGTCTATATACTTTGGGAAGTAGTTTTTGCATTGCTCAGCACCCTGTATTGCTCTGTTTCTACAGAGAACACTCTAAGAGA",
+    snp_pos = 52,
+    locus = "chr4:154,314,240 (hg38)",
+    snp_id = "rs12644248 (DCHS2)",
+    phenotype = "Associated with the angle of the columella (base of the nose)."
+  ),
+  "Nose Width" = list(
+    seq = "TGCTACTCCTGATCTCTGCCTCCCAGCAGCTTCTGTCTAGCCTGCTGTCACCAGTCATGGGTTGGGATGGCCCTCTGTGTCTCAACGCAAAGGCCACACTT",
+    snp_pos = 52,
+    locus = "chr20:4,863,948 (hg38)",
+    snp_id = "rs2206437 (DHX35)",
+    phenotype = "Associated with wider and lower nose morphology."
+  ),
+  "Nose Length" = list(
+    seq = "CTCTGGCCTGCCTTGCAGCCTTCGTGTATGAGCCCCGGTCTCACCCCAGGGTGCACCGGGCGCTCCTGTCCACCCCACCCCCGCAGCCCACTGGGCCGGGT",
+    snp_pos = 52,
+    locus = "chr1:116,167,664 (hg38)",
+    snp_id = "rs647711 (IGSF3)",
+    phenotype = "Associated with nasal length and general nose size."
   )
+)
+
+# Organize choices for UI
+choice_list <- list(
+  "Eye Color" = c("Brown/Blue", "Dark Brown", "Green", "Hazel", "Amber", "Grey", "Light Blue", "Blue/Green", "Red"),
+  "Nose Size/Shape" = c("Nose Wing Breadth", "Nose Protrusion", "Columella Inclination", "Nose Width", "Nose Length")
 )
 
 # UI definition
 ui <- fluidPage(
   theme = bslib::bs_theme(version = 5, bootswatch = "cosmo"),
-  titlePanel("CRISPR Eye Color Modification Template"),
+  titlePanel("CRISPR Genomic Modification Template"),
   
   sidebarLayout(
     sidebarPanel(
       h4("Configuration"),
-      helpText("Design CRISPR guides for phenotypic eye color modification."),
-      selectInput("target_color", "Desired Modification:", 
-                  choices = names(targets)),
+      helpText("Design CRISPR guides for phenotypic trait modification."),
+      selectInput("target_trait", "Desired Modification:", 
+                  choices = choice_list),
       hr(),
       sliderInput("guide_len", "Guide Length:", min = 15, max = 25, value = 20),
       actionButton("design", "Run Design", class = "btn-primary w-100"),
@@ -131,7 +173,7 @@ server <- function(input, output) {
   
   # Reactive target based on selection
   current_target <- reactive({
-    targets[[input$target_color]]
+    targets[[input$target_trait]]
   })
   
   results <- reactiveValues(guides = NULL)
@@ -152,7 +194,7 @@ server <- function(input, output) {
   output$seq_display <- renderUI({
     target <- current_target()
     # Highlight SNP with relevant color
-    display_color <- switch(input$target_color,
+    display_color <- switch(input$target_trait,
                             "Brown/Blue" = "brown",
                             "Dark Brown" = "#5C4033",
                             "Green" = "green",
@@ -162,6 +204,11 @@ server <- function(input, output) {
                             "Light Blue" = "lightblue",
                             "Blue/Green" = "cyan",
                             "Red" = "red",
+                            "Nose Wing Breadth" = "purple",
+                            "Nose Protrusion" = "purple",
+                            "Columella Inclination" = "purple",
+                            "Nose Width" = "purple",
+                            "Nose Length" = "purple",
                             "black")
     
     part1 <- substr(target$seq, 1, target$snp_pos - 1)
