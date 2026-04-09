@@ -12,9 +12,10 @@ By using CRISPR/Cas9 (or more advanced tools like Base Editors), one can theoret
 
 ## Application Features
 
-- **Sequence Visualization:** Displays the genomic context around the rs12913832 SNP.
-- **gRNA Design:** Uses the Bioconductor `Biostrings` library to search for "NGG" PAM sites and design 20bp guides.
-- **Target Analysis:** Identifies whether the SNP is located within the guide sequence or the PAM, which is crucial for allelic specificity.
+- **Multi-Target Support:** Supports designing guides for Brown/Blue (HERC2/OCA2), Green (IRF4), and Red (TYR) eye color phenotypes.
+- **Sequence Visualization:** Displays the genomic context and highlights the target SNP for each locus.
+- **gRNA Design:** Uses the Bioconductor `Biostrings` library to search for "NGG" PAM sites and design custom length guides.
+- **Target Analysis:** Identifies whether the SNP is located within the guide sequence or the PAM.
 
 ## Prerequisites
 

@@ -1,32 +1,46 @@
-# Test CRISPR logic for rs12913832 targeting using Bioconductor
+# Test CRISPR logic for multiple eye color targets using Bioconductor
 source("utils.R")
 
-# Sequence around rs12913832 (hg38 chr15:28,120,472)
-# SNP is at index 52
-target_sequence <- "TGTCTACCCTAAACATGTTCACAGGGTGAGCCACCTGGGCAGAATTAGAGAGTGACATCTTCCCTCAGCCCCAGTCTCTACTCCTACTTCCACCACTCCACCTTAATCTCTCA"
-snp_pos <- 52 
+# Target configurations
+targets <- list(
+  "Brown/Blue" = list(
+    seq = "TGTCTACCCTAAACATGTTCACAGGGTGAGCCACCTGGGCAGAATTAGAGAGTGACATCTTCCCTCAGCCCCAGTCTCTACTCCTACTTCCACCACTCCACCTTAATCTCTCA",
+    snp_pos = 52
+  ),
+  "Green" = list(
+    seq = "TGATGTGAATGACAGCTTTGTTTCATCCACTTTGGTGGGTAAAAGAAGGCAAATTCCCCTGTGGTACTTTTGGTGCCAGGTTTAGCCATATGACGAAGCT",
+    snp_pos = 51
+  ),
+  "Red" = list(
+    seq = "AACAAACACAAAAATAGACAAATAGGATTACTTCAAACTAAAAATCTCCAAGCGACCAAGAAAACAATTAACATGATAGACAGACAACTTACACAATAGG",
+    snp_pos = 51
+  )
+)
 
-cat("Testing CRISPR design logic using Biostrings...\n")
+cat("Testing CRISPR design logic for multiple color targets...\n\n")
 
-# Use the utility function
-guides <- design_guides(target_sequence, guide_len = 20)
-
-if (nrow(guides) > 0) {
-  # Check which guides target the SNP
-  guides$SNP_Targeted <- sapply(1:nrow(guides), function(i) {
-    is_snp_targeted(guides$Start[i], guides$End[i], snp_pos)
-  })
+for (name in names(targets)) {
+  target <- targets[[name]]
+  cat("--- Testing Target:", name, "---\n")
   
-  cat("Found", nrow(guides), "potential guides.\n")
-  targeted <- guides[guides$SNP_Targeted, ]
+  guides <- design_guides(target$seq, guide_len = 20)
   
-  if (nrow(targeted) > 0) {
-    cat("\nSuccess: Found", nrow(targeted), "guides targeting the eye color SNP!\n")
-    print(targeted)
+  if (nrow(guides) > 0) {
+    guides$SNP_Targeted <- sapply(1:nrow(guides), function(i) {
+      is_snp_targeted(guides$Start[i], guides$End[i], target$snp_pos)
+    })
+    
+    cat("Found", nrow(guides), "potential guides.\n")
+    targeted <- guides[guides$SNP_Targeted, ]
+    
+    if (nrow(targeted) > 0) {
+      cat("Success: Found", nrow(targeted), "guides targeting the SNP!\n")
+      print(targeted)
+    } else {
+      cat("Notice: No guides found that target the SNP directly in this snippet.\n")
+    }
   } else {
-    cat("\nNo guides found that target the SNP directly.\n")
-    print(guides)
+    cat("Error: No guides found in the sequence.\n")
   }
-} else {
-  cat("\nError: No guides found in the sequence.\n")
+  cat("\n")
 }
