@@ -1,4 +1,4 @@
-# Test CRISPR logic for multiple eye color targets using Bioconductor
+library(testthat)
 source("utils.R")
 
 # Load target configurations
@@ -8,30 +8,31 @@ source("targets/ears.R")
 
 targets <- c(targets_eyes, targets_nose, targets_ears)
 
-cat("Testing CRISPR design logic for multiple phenotypic targets...\n\n")
+context("CRISPR Design Logic")
 
 for (name in names(targets)) {
-  target <- targets[[name]]
-  cat("--- Testing Target:", name, "---\n")
-  
-  guides <- design_guides(target$seq, guide_len = 20)
-  
-  if (nrow(guides) > 0) {
-    guides$SNP_Targeted <- sapply(1:nrow(guides), function(i) {
+  test_that(paste("Target identification and SNP hit for:", name), {
+    target <- targets[[name]]
+    
+    # We expect design_guides to run without error and find potential guides
+    expect_error(guides <- design_guides(target$seq, guide_len = 20), NA)
+    expect_gt(nrow(guides), 0)
+    
+    # Check SNP targeting
+    guides$SNP_Targeted <- sapply(seq_len(nrow(guides)), function(i) {
       is_snp_targeted(guides$Start[i], guides$End[i], target$snp_pos)
     })
     
-    cat("Found", nrow(guides), "potential guides.\n")
     targeted <- guides[guides$SNP_Targeted, ]
     
-    if (nrow(targeted) > 0) {
-      cat("Success: Found", nrow(targeted), "guides targeting the SNP!\n")
-      print(targeted)
+    # Known targets that do NOT have a guide hitting the SNP in the 101bp context
+    # based on previous analysis. We expect them to have 0 hits but still pass the test.
+    no_hit_expected <- c("Columella Inclination", "Vertical Ear Length")
+    
+    if (name %in% no_hit_expected) {
+      expect_equal(nrow(targeted), 0, label = paste("Expected 0 hits for", name))
     } else {
-      cat("Notice: No guides found that target the SNP directly in this snippet.\n")
+      expect_gt(nrow(targeted), 0, label = paste("Expected hits for", name))
     }
-  } else {
-    cat("Error: No guides found in the sequence.\n")
-  }
-  cat("\n")
+  })
 }

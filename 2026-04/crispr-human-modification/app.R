@@ -78,40 +78,24 @@ server <- function(input, output) {
   observeEvent(input$design, {
     target <- current_target()
     # Use improved design function from utils.R
-    df <- design_guides(target$seq, guide_len = input$guide_len)
-    
-    if (nrow(df) > 0) {
-      df$SNP_Targeted <- sapply(1:nrow(df), function(i) {
-        is_snp_targeted(df$Start[i], df$End[i], target$snp_pos)
-      })
-    }
-    results$guides <- df
+    tryCatch({
+      df <- design_guides(target$seq, guide_len = input$guide_len)
+      
+      if (nrow(df) > 0) {
+        df$SNP_Targeted <- sapply(seq_len(nrow(df)), function(i) {
+          is_snp_targeted(df$Start[i], df$End[i], target$snp_pos)
+        })
+      }
+      results$guides <- df
+    }, error = function(e) {
+      showNotification(paste("Error in CRISPR design:", e$message), type = "error")
+    })
   })
   
   output$seq_display <- renderUI({
     target <- current_target()
     # Highlight SNP with relevant color
-    display_color <- switch(input$target_trait,
-                            "Brown/Blue" = "brown",
-                            "Dark Brown" = "#5C4033",
-                            "Green" = "green",
-                            "Hazel" = "#8E7618",
-                            "Amber" = "#FFBF00",
-                            "Grey" = "grey",
-                            "Light Blue" = "lightblue",
-                            "Blue/Green" = "cyan",
-                            "Red" = "red",
-                            "Nose Wing Breadth" = "purple",
-                            "Nose Protrusion" = "purple",
-                            "Columella Inclination" = "purple",
-                            "Nose Width" = "purple",
-                            "Nose Length" = "purple",
-                            "Ear Shape" = "orange",
-                            "Lobe Attachment" = "orange",
-                            "Vertical Ear Length" = "orange",
-                            "Darwin's Tubercle" = "orange",
-                            "Lobe Size" = "orange",
-                            "black")
+    display_color <- if (!is.null(target$color)) target$color else "black"
     
     part1 <- substr(target$seq, 1, target$snp_pos - 1)
     snp <- substr(target$seq, target$snp_pos, target$snp_pos)
