@@ -49,6 +49,11 @@ curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr11;st
 curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr11;start=89230507;end=89230607" > data/rs1042602.json
 ```
 
+### Sectoral Heterochromia (rs121434257)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr2;start=222216584;end=222216685" > data/rs121434257.json
+```
+
 ## Nose Morphology
 
 ### Nose Wing Breadth (rs927833)

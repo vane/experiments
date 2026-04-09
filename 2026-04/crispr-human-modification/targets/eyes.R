@@ -79,5 +79,14 @@ targets_eyes <- list(
     snp_id = "rs1042602 (TYR)",
     phenotype = "Associated with oculocutaneous albinism (Reddish/Pink eyes).",
     color = "red"
+  ),
+  "Sectoral Heterochromia" = list(
+    # rs121434257 (PAX3)
+    seq = "AAAGGACTGAGGGCATCTATGATGCGCCATTTGGCAAATGGCTGTAATTCCCAGCCTTTGCTCAAGGGAAAAGATACATTAGAGACACAAAACAAAAACCA",
+    snp_pos = 51,
+    locus = "chr2:222,216,634 (hg38)",
+    snp_id = "rs121434257 (PAX3)",
+    phenotype = "Associated with sectoral heterochromia (Waardenburg Syndrome type 1).",
+    color = "orchid"
   )
 )

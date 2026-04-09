@@ -23,7 +23,7 @@ Ear shape and size are also heritable traits with several identified genetic dri
 ## Application Features
 
 - **Multi-Trait Support:** 
-  - **Eye Color:** Brown/Blue, Dark Brown, Green, Hazel, Amber, Grey, Light Blue, Blue/Green, and Red/Albinism.
+  - **Eye Color:** Brown/Blue, Dark Brown, Green, Hazel, Amber, Grey, Light Blue, Blue/Green, Red/Albinism, and Sectoral Heterochromia.
   - **Nose Morphology:** Wing Breadth, Protrusion, Columella Inclination, Width, and Length.
   - **Ear Morphology:** Shape, Lobe Attachment, Vertical Length, Darwin's Tubercle, and Lobe Size.
 - **Data Persistence:** Genomic sequences are stored as JSON artifacts in the `data/` directory.
@@ -81,6 +81,7 @@ The following genomic sequences were fetched from the UCSC Genome Browser (hg38)
 | Light Blue| rs16891982 | chr5 | 33,951,556 | `data/rs16891982.json` |
 | Blue/Green| rs1393350 | chr11 | 89,010,977 | `data/rs1393350.json` |
 | Red | rs1042602 | chr11 | 89,230,557 | `data/rs1042602.json` |
+| Sectoral Het.| rs121434257 | chr2 | 222,216,634 | `data/rs121434257.json` |
 
 ### Nose Morphology Targets
 
