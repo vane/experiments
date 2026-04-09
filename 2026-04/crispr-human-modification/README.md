@@ -37,7 +37,7 @@ Eyebrow thickness and shape are heritable traits with several identified loci:
 ## Application Features
 
 - **Multi-Trait Support:** 
-  - **Eye Color:** Brown/Blue, Dark Brown, Green, Hazel, Amber, Grey, Light Blue, Blue/Green, Red/Albinism, and Sectoral Heterochromia.
+  - **Eye Color:** Brown/Blue, Dark Brown, Green, Hazel, Amber, Grey, Light Blue, Blue/Green, Red/Albinism, Sectoral Heterochromia, and Limbal/Pigmented Ring.
   - **Nose Morphology:** Wing Breadth, Protrusion, Columella Inclination, Width, and Length.
   - **Ear Morphology:** Shape, Lobe Attachment, Vertical Length, Darwin's Tubercle, and Lobe Size.
   - **Teeth Morphology:** Tooth Agenesis (PAX9/MSX1), Shape/Size (WNT10A/PITX2), and Incisor Shoveling.
@@ -98,6 +98,7 @@ The following genomic sequences were fetched from the UCSC Genome Browser (hg38)
 | Blue/Green| rs1393350 | chr11 | 89,010,977 | `data/rs1393350.json` |
 | Red | rs1042602 | chr11 | 89,230,557 | `data/rs1042602.json` |
 | Sectoral Het.| rs121434257 | chr2 | 222,216,634 | `data/rs121434257.json` |
+| Limbal Ring | rs4900109 | chr14 | 92,297,047 | `data/rs4900109.json` |
 
 ### Nose Morphology Targets
 

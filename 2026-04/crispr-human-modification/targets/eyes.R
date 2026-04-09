@@ -88,5 +88,14 @@ targets_eyes <- list(
     snp_id = "rs121434257 (PAX3)",
     phenotype = "Associated with sectoral heterochromia (Waardenburg Syndrome type 1).",
     color = "orchid"
+  ),
+  "Limbal/Pigmented Ring" = list(
+    # rs4900109 (SLC24A4)
+    seq = "GAGCATGAAATAGCTCCTGAACCCAAGAAAAATTTCATGTTCCAGTAGAAGGGCATTGATGACAAAGCCTGCTTCTGCCGTTTACTTGCTGGGGCTTTGGA",
+    snp_pos = 52,
+    locus = "chr14:92,297,047 (hg38)",
+    snp_id = "rs4900109 (SLC24A4)",
+    phenotype = "Associated with the presence and prominence of a pigmented ring in the iris.",
+    color = "black"
   )
 )

@@ -54,6 +54,11 @@ curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr11;st
 curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr2;start=222216584;end=222216685" > data/rs121434257.json
 ```
 
+### Limbal/Pigmented Ring (rs4900109)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr14;start=92296996;end=92297097" > data/rs4900109.json
+```
+
 ## Nose Morphology
 
 ### Nose Wing Breadth (rs927833)
