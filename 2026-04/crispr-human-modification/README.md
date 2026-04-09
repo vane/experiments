@@ -1,6 +1,6 @@
 # CRISPR Eye Color Modification Template
 
-This project provides a template R/Shiny application for designing CRISPR/Cas9 guide RNAs (gRNAs) to modify human physical traits (eye color and nose morphology) at the genetic level.
+This project provides a template R/Shiny application for designing CRISPR/Cas9 guide RNAs (gRNAs) to modify human physical traits (eye color, nose morphology, and ear morphology) at the genetic level.
 
 ## Biological Context
 
@@ -14,11 +14,18 @@ Facial morphology, including nose size and shape, is a complex polygenic trait. 
 - **DHX35**: Associated with nose width.
 - **IGSF3**: Associated with nose length.
 
+### Ear Morphology
+Ear shape and size are also heritable traits with several identified genetic drivers:
+- **EDAR**: Influences ear protrusion and shape (prominent antihelix superior crus).
+- **TBX15/WARS2**: Locus associated with lobe attachment and size.
+- **8q24.13**: Region associated with vertical ear length.
+
 ## Application Features
 
 - **Multi-Trait Support:** 
   - **Eye Color:** Brown/Blue, Dark Brown, Green, Hazel, Amber, Grey, Light Blue, Blue/Green, and Red/Albinism.
   - **Nose Morphology:** Wing Breadth, Protrusion, Columella Inclination, Width, and Length.
+  - **Ear Morphology:** Shape, Lobe Attachment, Vertical Length, Darwin's Tubercle, and Lobe Size.
 - **Data Persistence:** Genomic sequences are stored as JSON artifacts in the `data/` directory.
 - **Sequence Visualization:** Displays the genomic context and highlights the target SNP for each locus.
 - **gRNA Design:** Uses the Bioconductor `Biostrings` library to search for "NGG" PAM sites and design custom length guides.
@@ -84,6 +91,16 @@ The following genomic sequences were fetched from the UCSC Genome Browser (hg38)
 | Columella Incl. | rs12644248 | chr4 | 154,314,240 | `data/rs12644248.json` |
 | Nose Width | rs2206437 | chr20 | 4,863,948 | `data/rs2206437.json` |
 | Nose Length | rs647711 | chr1 | 116,167,664 | `data/rs647711.json` |
+
+### Ear Morphology Targets
+
+| Trait | SNP ID | Chromosome | Position (hg38) | Artifact File |
+|-------|--------|------------|-----------------|---------------|
+| Ear Shape | rs3827760 | chr2 | 108,897,145 | `data/rs3827760.json` |
+| Lobe Attachment | rs6802174 | chr3 | 139,287,822 | `data/rs6802174.json` |
+| Vertical Length | rs7812632 | chr8 | 121,878,655 | `data/rs7812632.json` |
+| Darwin's Tubercle | rs1948400 | chr3 | 139,265,404 | `data/rs1948400.json` |
+| Lobe Size | rs263156 | chr6 | 142,586,378 | `data/rs263156.json` |
 
 ## Disclaimer
 

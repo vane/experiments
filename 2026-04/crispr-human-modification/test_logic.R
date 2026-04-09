@@ -59,6 +59,27 @@ targets <- list(
   "Nose Length" = list(
     seq = "CTCTGGCCTGCCTTGCAGCCTTCGTGTATGAGCCCCGGTCTCACCCCAGGGTGCACCGGGCGCTCCTGTCCACCCCACCCCCGCAGCCCACTGGGCCGGGT",
     snp_pos = 52
+  ),
+  # Ear targets
+  "Ear Shape" = list(
+    seq = "CATCCCTCTTCAGGCCGAAGCTCTCGGCGAGGTGGCGCCACGTTTTCACAACAGCCTTCTCAGAGTTGTACGTGGAGCTGAGCATTCGGCTAGTCTTCTCG",
+    snp_pos = 52
+  ),
+  "Lobe Attachment" = list(
+    seq = "aattaggatttgaacccgagcagcctggtcccagagcccatgtgctGGAGCTACAATACCGATCCCTCTGGACAGACAGGTAAACGATGGTTGACCATGGG",
+    snp_pos = 52
+  ),
+  "Vertical Ear Length" = list(
+    seq = "ttggttAAgaatgaaataaatctgtgttctaatctcatatacgttattaactagacacaaagaccttgagaaagtcattagcccttccagacagtattatt",
+    snp_pos = 52
+  ),
+  "Darwin's Tubercle" = list(
+    seq = "ATGCGTCTCACCCCCAACTTTACAGGTAGGGAGGCTGAGTGGGGACAGAGTATAGTTTCTGCCTCTCTGGCCTGACGCTCTACACTGTCCCACTTTTCTGA",
+    snp_pos = 52
+  ),
+  "Lobe Size" = list(
+    seq = "aaggagttcatgtagtgatgcccaagcactaagttgtgcagctcaaatagtggtggaatgatagggtagatgagcaagaatctgcccaggcagcagcccta",
+    snp_pos = 52
   )
 )
 

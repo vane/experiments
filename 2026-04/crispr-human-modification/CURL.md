@@ -75,3 +75,30 @@ curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr20;st
 ```bash
 curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr1;start=116167613;end=116167714" > data/rs647711.json
 ```
+
+## Ear Morphology
+
+### Ear Shape/Protrusion (rs3827760)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr2;start=108897094;end=108897195" > data/rs3827760.json
+```
+
+### Lobe Attachment (rs6802174)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr3;start=139287771;end=139287872" > data/rs6802174.json
+```
+
+### Vertical Ear Length (rs7812632)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr8;start=121878604;end=121878705" > data/rs7812632.json
+```
+
+### Darwin's Tubercle (rs1948400)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr3;start=139265353;end=139265454" > data/rs1948400.json
+```
+
+### Lobe Size (rs263156)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr6;start=142586327;end=142586428" > data/rs263156.json
+```

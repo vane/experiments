@@ -110,13 +110,50 @@ targets <- list(
     locus = "chr1:116,167,664 (hg38)",
     snp_id = "rs647711 (IGSF3)",
     phenotype = "Associated with nasal length and general nose size."
+  ),
+  # Ear targets
+  "Ear Shape" = list(
+    seq = "CATCCCTCTTCAGGCCGAAGCTCTCGGCGAGGTGGCGCCACGTTTTCACAACAGCCTTCTCAGAGTTGTACGTGGAGCTGAGCATTCGGCTAGTCTTCTCG",
+    snp_pos = 52,
+    locus = "chr2:108,897,145 (hg38)",
+    snp_id = "rs3827760 (EDAR)",
+    phenotype = "Associated with ear protrusion and shape (prominent antihelix superior crus)."
+  ),
+  "Lobe Attachment" = list(
+    seq = "aattaggatttgaacccgagcagcctggtcccagagcccatgtgctGGAGCTACAATACCGATCCCTCTGGACAGACAGGTAAACGATGGTTGACCATGGG",
+    snp_pos = 52,
+    locus = "chr3:139,287,822 (hg38)",
+    snp_id = "rs6802174",
+    phenotype = "Strongly associated with earlobe attachment type."
+  ),
+  "Vertical Ear Length" = list(
+    seq = "ttggttAAgaatgaaataaatctgtgttctaatctcatatacgttattaactagacacaaagaccttgagaaagtcattagcccttccagacagtattatt",
+    snp_pos = 52,
+    locus = "chr8:121,878,655 (hg38)",
+    snp_id = "rs7812632",
+    phenotype = "Associated with increased vertical length of the ear."
+  ),
+  "Darwin's Tubercle" = list(
+    seq = "ATGCGTCTCACCCCCAACTTTACAGGTAGGGAGGCTGAGTGGGGACAGAGTATAGTTTCTGCCTCTCTGGCCTGACGCTCTACACTGTCCCACTTTTCTGA",
+    snp_pos = 52,
+    locus = "chr3:139,265,404 (hg38)",
+    snp_id = "rs1948400",
+    phenotype = "Associated with the presence of Darwin's tubercle."
+  ),
+  "Lobe Size" = list(
+    seq = "aaggagttcatgtagtgatgcccaagcactaagttgtgcagctcaaatagtggtggaatgatagggtagatgagcaagaatctgcccaggcagcagcccta",
+    snp_pos = 52,
+    locus = "chr6:142,586,378 (hg38)",
+    snp_id = "rs263156",
+    phenotype = "Associated with earlobe size and tragus size."
   )
 )
 
 # Organize choices for UI
 choice_list <- list(
   "Eye Color" = c("Brown/Blue", "Dark Brown", "Green", "Hazel", "Amber", "Grey", "Light Blue", "Blue/Green", "Red"),
-  "Nose Size/Shape" = c("Nose Wing Breadth", "Nose Protrusion", "Columella Inclination", "Nose Width", "Nose Length")
+  "Nose Size/Shape" = c("Nose Wing Breadth", "Nose Protrusion", "Columella Inclination", "Nose Width", "Nose Length"),
+  "Ear Morphology" = c("Ear Shape", "Lobe Attachment", "Vertical Ear Length", "Darwin's Tubercle", "Lobe Size")
 )
 
 # UI definition
@@ -209,6 +246,11 @@ server <- function(input, output) {
                             "Columella Inclination" = "purple",
                             "Nose Width" = "purple",
                             "Nose Length" = "purple",
+                            "Ear Shape" = "orange",
+                            "Lobe Attachment" = "orange",
+                            "Vertical Ear Length" = "orange",
+                            "Darwin's Tubercle" = "orange",
+                            "Lobe Size" = "orange",
                             "black")
     
     part1 <- substr(target$seq, 1, target$snp_pos - 1)
