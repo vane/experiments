@@ -53,7 +53,7 @@ Rscript test_logic.R
 
 ## Genomic Data History
 
-The following genomic sequences were fetched from the UCSC Genome Browser (hg38) and are stored in the `data/` directory:
+The following genomic sequences were fetched from the UCSC Genome Browser (hg38) and are stored in the `data/` directory. Detailed `curl` commands used for fetching are available in [CURL.md](CURL.md).
 
 | Phenotype | SNP ID | Chromosome | Position (hg38) | Artifact File |
 |-----------|--------|------------|-----------------|---------------|
