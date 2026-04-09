@@ -27,6 +27,13 @@ Dental development is regulated by a complex network of signaling pathways (Wnt,
 - **PITX2**: Determines tooth size and the patterning of the dental lamina.
 - **EDAR**: Influences incisor shoveling and overall tooth crown dimensions.
 
+### Eyebrow Traits
+Eyebrow thickness and shape are heritable traits with several identified loci:
+- **SOX2/FOXD1**: Near these transcription factors are regions associated with eyebrow thickness.
+- **FOXL2**: Gene associated with eyebrow thickness.
+- **PAX3**: Associated with synophrys (unibrow).
+- **EDAR**: Known for its role in multiple ectodermal traits, including eyebrow thickness.
+
 ## Application Features
 
 - **Multi-Trait Support:** 
@@ -34,6 +41,7 @@ Dental development is regulated by a complex network of signaling pathways (Wnt,
   - **Nose Morphology:** Wing Breadth, Protrusion, Columella Inclination, Width, and Length.
   - **Ear Morphology:** Shape, Lobe Attachment, Vertical Length, Darwin's Tubercle, and Lobe Size.
   - **Teeth Morphology:** Tooth Agenesis (PAX9/MSX1), Shape/Size (WNT10A/PITX2), and Incisor Shoveling.
+  - **Eyebrow Traits:** Thickness (SOX2, FOXD1, EDAR, FOXL2) and Synophrys (PAX3).
 - **Data Persistence:** Genomic sequences are stored as JSON artifacts in the `data/` directory.
 - **Sequence Visualization:** Displays the genomic context and highlights the target SNP for each locus.
 - **gRNA Design:** Uses the Bioconductor `Biostrings` library to search for "NGG" PAM sites and design custom length guides.
@@ -120,6 +128,16 @@ The following genomic sequences were fetched from the UCSC Genome Browser (hg38)
 | Tooth Shape/Size | rs10168648 | chr2 | 35,202,027 | `data/rs10168648.json` |
 | Tooth Size | rs3866831 | chr4 | 110,810,958 | `data/rs3866831.json` |
 | Incisor Shoveling | rs3827760 | chr2 | 108,897,145 | `data/rs3827760.json` |
+
+### Eyebrow Targets
+
+| Trait | SNP ID | Chromosome | Position (hg38) | Artifact File |
+|-------|--------|------------|-----------------|---------------|
+| Thickness (SOX2) | rs1345417 | chr3 | 181,794,163 | `data/rs1345417.json` |
+| Thickness (FOXD1) | rs12651896 | chr5 | 73,206,202 | `data/rs12651896.json` |
+| Thickness (EDAR) | rs16833231 | chr1 | 151,430,655 | `data/rs16833231.json` |
+| Thickness (FOXL2) | rs112458845 | chr3 | 138,956,899 | `data/rs112458845.json` |
+| Synophrys (PAX3) | rs4849721 | chr2 | 118,786,446 | `data/rs4849721.json` |
 
 ## Disclaimer
 

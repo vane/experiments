@@ -7,15 +7,17 @@ source("targets/eyes.R")
 source("targets/nose.R")
 source("targets/ears.R")
 source("targets/teeth.R")
+source("targets/eyebrows.R")
 
-targets <- c(targets_eyes, targets_nose, targets_ears, targets_teeth)
+targets <- c(targets_eyes, targets_nose, targets_ears, targets_teeth, targets_eyebrows)
 
 # Organize choices for UI
 choice_list <- list(
   "Eye Color" = names(targets_eyes),
   "Nose Size/Shape" = names(targets_nose),
   "Ear Morphology" = names(targets_ears),
-  "Teeth Morphology" = names(targets_teeth)
+  "Teeth Morphology" = names(targets_teeth),
+  "Eyebrow Traits" = names(targets_eyebrows)
 )
 
 # UI definition

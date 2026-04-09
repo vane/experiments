@@ -134,3 +134,30 @@ curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr4;sta
 ```bash
 curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr2;start=108897094;end=108897195" > data/rs3827760.json
 ```
+
+## Eyebrow Traits
+
+### Eyebrow Thickness (rs1345417)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr3;start=181794112;end=181794213" > data/rs1345417.json
+```
+
+### Eyebrow Thickness (rs12651896)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr5;start=73206151;end=73206252" > data/rs12651896.json
+```
+
+### Eyebrow Thickness (rs112458845)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr3;start=138956848;end=138956949" > data/rs112458845.json
+```
+
+### Synophrys (rs4849721)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr2;start=118786395;end=118786496" > data/rs4849721.json
+```
+
+### Eyebrow Thickness (rs16833231)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr1;start=151430604;end=151430705" > data/rs16833231.json
+```
