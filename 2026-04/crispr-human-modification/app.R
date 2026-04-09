@@ -11,6 +11,14 @@ targets <- list(
     snp_id = "rs12913832 (HERC2/OCA2)",
     phenotype = "Major determinant of eye color (Brown/Blue)."
   ),
+  "Dark Brown" = list(
+    # rs1800401 (OCA2)
+    seq = "CTGATGAGCCATCAAAAGAGGGACAGCCTGGGTCTGCTGCAGGGAGGCCCGGATGCTGATGGACACCGTCTCTCTGCAGAACGAAACAACGACCTTACTGT",
+    snp_pos = 52,
+    locus = "chr15:28,014,907 (hg38)",
+    snp_id = "rs1800401 (OCA2)",
+    phenotype = "Associated with deep brown pigmentation."
+  ),
   "Green" = list(
     # rs12203592 (IRF4)
     seq = "TGATGTGAATGACAGCTTTGTTTCATCCACTTTGGTGGGTAAAAGAAGGCAAATTCCCCTGTGGTACTTTTGGTGCCAGGTTTAGCCATATGACGAAGCT",
@@ -18,6 +26,46 @@ targets <- list(
     locus = "chr6:396,321 (hg38)",
     snp_id = "rs12203592 (IRF4)",
     phenotype = "Associated with intermediate (Green/Hazel) eye color."
+  ),
+  "Hazel" = list(
+    # rs1800407 (OCA2)
+    seq = "GGACGGCCGCGATGAGACAGAGCATGATGATCATGGCCCACACCCGTCCCCGGGAGAGCCGGTATGCCTGGCCACACACACACAGAGAGAGTACAAGCCAG",
+    snp_pos = 52,
+    locus = "chr15:27,985,172 (hg38)",
+    snp_id = "rs1800407 (OCA2)",
+    phenotype = "Associated with green/hazel eye color variations."
+  ),
+  "Amber" = list(
+    # rs1540771 (ASIP)
+    seq = "TGTAATCCCGGCACTTTGGGAGGCCGAGGTGGGCGGATCACGAGGTCAGGAGATCGAGACCATCTTGGCTAACATGGTGAAACCCCGTCTCTACTAAAAAT",
+    snp_pos = 52,
+    locus = "chr20:34,138,092 (hg38)",
+    snp_id = "rs1540771 (ASIP)",
+    phenotype = "Associated with golden/amber eye color."
+  ),
+  "Grey" = list(
+    # rs12896399 (SLC24A4)
+    seq = "CATGCACCACCATGCCTGGCTAATTTTTGTTCTTTAGTAGAGATGGGGTTTTACCATATTGGCAAGGCTGGTCTCAAACTCCTGACCTCAAACAATCCACC",
+    snp_pos = 52,
+    locus = "chr14:92,113,279 (hg38)",
+    snp_id = "rs12896399 (SLC24A4)",
+    phenotype = "Associated with blue/grey eye color and blonde hair."
+  ),
+  "Light Blue" = list(
+    # rs16891982 (SLC45A2)
+    seq = "TAGACCAGAAACTTTTAGAAGACATCCTTAGGAGAGAGAAAGACTTACAAGAATAAAGTGAGGAAAACACGGAGTTGATGCACAAGCCCCAACATCCAACC",
+    snp_pos = 52,
+    locus = "chr5:33,951,556 (hg38)",
+    snp_id = "rs16891982 (SLC45A2)",
+    phenotype = "Common variant predicting light iris color."
+  ),
+  "Blue/Green" = list(
+    # rs1393350 (TYRP1 locus area)
+    seq = "TCCTGATGGACTCTAGGTAACTTACTCCTTTGCTTTCCAAAAGAGTAATAAGAAAAGCTATATTTAATTTAATGTGGTTCCATTTGTAGAGAGAAATAATA",
+    snp_pos = 52,
+    locus = "chr11:89,010,977 (hg38)",
+    snp_id = "rs1393350 (near TYRP1)",
+    phenotype = "Associated with blue/green eye color variations."
   ),
   "Red" = list(
     # rs1042602 (TYR)
@@ -39,7 +87,7 @@ ui <- fluidPage(
       h4("Configuration"),
       helpText("Design CRISPR guides for phenotypic eye color modification."),
       selectInput("target_color", "Desired Modification:", 
-                  choices = c("Brown/Blue", "Green", "Red")),
+                  choices = names(targets)),
       hr(),
       sliderInput("guide_len", "Guide Length:", min = 15, max = 25, value = 20),
       actionButton("design", "Run Design", class = "btn-primary w-100"),
@@ -106,8 +154,15 @@ server <- function(input, output) {
     # Highlight SNP with relevant color
     display_color <- switch(input$target_color,
                             "Brown/Blue" = "brown",
+                            "Dark Brown" = "#5C4033",
                             "Green" = "green",
-                            "Red" = "red")
+                            "Hazel" = "#8E7618",
+                            "Amber" = "#FFBF00",
+                            "Grey" = "grey",
+                            "Light Blue" = "lightblue",
+                            "Blue/Green" = "cyan",
+                            "Red" = "red",
+                            "black")
     
     part1 <- substr(target$seq, 1, target$snp_pos - 1)
     snp <- substr(target$seq, target$snp_pos, target$snp_pos)
