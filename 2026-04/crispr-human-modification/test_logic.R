@@ -1,87 +1,12 @@
 # Test CRISPR logic for multiple eye color targets using Bioconductor
 source("utils.R")
 
-# Target configurations
-targets <- list(
-  "Brown/Blue" = list(
-    seq = "TGTCTACCCTAAACATGTTCACAGGGTGAGCCACCTGGGCAGAATTAGAGAGTGACATCTTCCCTCAGCCCCAGTCTCTACTCCTACTTCCACCACTCCACCTTAATCTCTCA",
-    snp_pos = 52
-  ),
-  "Dark Brown" = list(
-    seq = "CTGATGAGCCATCAAAAGAGGGACAGCCTGGGTCTGCTGCAGGGAGGCCCGGATGCTGATGGACACCGTCTCTCTGCAGAACGAAACAACGACCTTACTGT",
-    snp_pos = 52
-  ),
-  "Green" = list(
-    seq = "TGATGTGAATGACAGCTTTGTTTCATCCACTTTGGTGGGTAAAAGAAGGCAAATTCCCCTGTGGTACTTTTGGTGCCAGGTTTAGCCATATGACGAAGCT",
-    snp_pos = 51
-  ),
-  "Hazel" = list(
-    seq = "GGACGGCCGCGATGAGACAGAGCATGATGATCATGGCCCACACCCGTCCCCGGGAGAGCCGGTATGCCTGGCCACACACACACAGAGAGAGTACAAGCCAG",
-    snp_pos = 52
-  ),
-  "Amber" = list(
-    seq = "TGTAATCCCGGCACTTTGGGAGGCCGAGGTGGGCGGATCACGAGGTCAGGAGATCGAGACCATCTTGGCTAACATGGTGAAACCCCGTCTCTACTAAAAAT",
-    snp_pos = 52
-  ),
-  "Grey" = list(
-    seq = "CATGCACCACCATGCCTGGCTAATTTTTGTTCTTTAGTAGAGATGGGGTTTTACCATATTGGCAAGGCTGGTCTCAAACTCCTGACCTCAAACAATCCACC",
-    snp_pos = 52
-  ),
-  "Light Blue" = list(
-    seq = "TAGACCAGAAACTTTTAGAAGACATCCTTAGGAGAGAGAAAGACTTACAAGAATAAAGTGAGGAAAACACGGAGTTGATGCACAAGCCCCAACATCCAACC",
-    snp_pos = 52
-  ),
-  "Blue/Green" = list(
-    seq = "TCCTGATGGACTCTAGGTAACTTACTCCTTTGCTTTCCAAAAGAGTAATAAGAAAAGCTATATTTAATTTAATGTGGTTCCATTTGTAGAGAGAAATAATA",
-    snp_pos = 52
-  ),
-  "Red" = list(
-    seq = "AACAAACACAAAAATAGACAAATAGGATTACTTCAAACTAAAAATCTCCAAGCGACCAAGAAAACAATTAACATGATAGACAGACAACTTACACAATAGG",
-    snp_pos = 51
-  ),
-  # Nose targets
-  "Nose Wing Breadth" = list(
-    seq = "ATCTCTTTATGGGTGCTCTTCAGGGGTATCTTTTCAGGGTTCTTGGTCAGCTGGTAAGTGTTACAATAATATCTCTTTTGAATATGTAACTATTATGCATT",
-    snp_pos = 52
-  ),
-  "Nose Protrusion" = list(
-    seq = "GCTTATCACCAACTTTATGAAACTTACTGACTCTAAGTAGAGAACGAGCCGGTCAGGTTTCAAGTTTTTCTTAAATGTCAATATTCTAAAAAAGAAAGCTG",
-    snp_pos = 52
-  ),
-  "Columella Inclination" = list(
-    seq = "TCAGCAATAAGTTCAGTATATGTCTATATACTTTGGGAAGTAGTTTTTGCATTGCTCAGCACCCTGTATTGCTCTGTTTCTACAGAGAACACTCTAAGAGA",
-    snp_pos = 52
-  ),
-  "Nose Width" = list(
-    seq = "TGCTACTCCTGATCTCTGCCTCCCAGCAGCTTCTGTCTAGCCTGCTGTCACCAGTCATGGGTTGGGATGGCCCTCTGTGTCTCAACGCAAAGGCCACACTT",
-    snp_pos = 52
-  ),
-  "Nose Length" = list(
-    seq = "CTCTGGCCTGCCTTGCAGCCTTCGTGTATGAGCCCCGGTCTCACCCCAGGGTGCACCGGGCGCTCCTGTCCACCCCACCCCCGCAGCCCACTGGGCCGGGT",
-    snp_pos = 52
-  ),
-  # Ear targets
-  "Ear Shape" = list(
-    seq = "CATCCCTCTTCAGGCCGAAGCTCTCGGCGAGGTGGCGCCACGTTTTCACAACAGCCTTCTCAGAGTTGTACGTGGAGCTGAGCATTCGGCTAGTCTTCTCG",
-    snp_pos = 52
-  ),
-  "Lobe Attachment" = list(
-    seq = "aattaggatttgaacccgagcagcctggtcccagagcccatgtgctGGAGCTACAATACCGATCCCTCTGGACAGACAGGTAAACGATGGTTGACCATGGG",
-    snp_pos = 52
-  ),
-  "Vertical Ear Length" = list(
-    seq = "ttggttAAgaatgaaataaatctgtgttctaatctcatatacgttattaactagacacaaagaccttgagaaagtcattagcccttccagacagtattatt",
-    snp_pos = 52
-  ),
-  "Darwin's Tubercle" = list(
-    seq = "ATGCGTCTCACCCCCAACTTTACAGGTAGGGAGGCTGAGTGGGGACAGAGTATAGTTTCTGCCTCTCTGGCCTGACGCTCTACACTGTCCCACTTTTCTGA",
-    snp_pos = 52
-  ),
-  "Lobe Size" = list(
-    seq = "aaggagttcatgtagtgatgcccaagcactaagttgtgcagctcaaatagtggtggaatgatagggtagatgagcaagaatctgcccaggcagcagcccta",
-    snp_pos = 52
-  )
-)
+# Load target configurations
+source("targets/eyes.R")
+source("targets/nose.R")
+source("targets/ears.R")
+
+targets <- c(targets_eyes, targets_nose, targets_ears)
 
 cat("Testing CRISPR design logic for multiple phenotypic targets...\n\n")
 

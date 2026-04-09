@@ -2,158 +2,18 @@
 library(shiny)
 source("utils.R")
 
-# Target configurations
-targets <- list(
-  "Brown/Blue" = list(
-    seq = "TGTCTACCCTAAACATGTTCACAGGGTGAGCCACCTGGGCAGAATTAGAGAGTGACATCTTCCCTCAGCCCCAGTCTCTACTCCTACTTCCACCACTCCACCTTAATCTCTCA",
-    snp_pos = 52,
-    locus = "chr15:28,120,472 (hg38)",
-    snp_id = "rs12913832 (HERC2/OCA2)",
-    phenotype = "Major determinant of eye color (Brown/Blue)."
-  ),
-  "Dark Brown" = list(
-    # rs1800401 (OCA2)
-    seq = "CTGATGAGCCATCAAAAGAGGGACAGCCTGGGTCTGCTGCAGGGAGGCCCGGATGCTGATGGACACCGTCTCTCTGCAGAACGAAACAACGACCTTACTGT",
-    snp_pos = 52,
-    locus = "chr15:28,014,907 (hg38)",
-    snp_id = "rs1800401 (OCA2)",
-    phenotype = "Associated with deep brown pigmentation."
-  ),
-  "Green" = list(
-    # rs12203592 (IRF4)
-    seq = "TGATGTGAATGACAGCTTTGTTTCATCCACTTTGGTGGGTAAAAGAAGGCAAATTCCCCTGTGGTACTTTTGGTGCCAGGTTTAGCCATATGACGAAGCT",
-    snp_pos = 51,
-    locus = "chr6:396,321 (hg38)",
-    snp_id = "rs12203592 (IRF4)",
-    phenotype = "Associated with intermediate (Green/Hazel) eye color."
-  ),
-  "Hazel" = list(
-    # rs1800407 (OCA2)
-    seq = "GGACGGCCGCGATGAGACAGAGCATGATGATCATGGCCCACACCCGTCCCCGGGAGAGCCGGTATGCCTGGCCACACACACACAGAGAGAGTACAAGCCAG",
-    snp_pos = 52,
-    locus = "chr15:27,985,172 (hg38)",
-    snp_id = "rs1800407 (OCA2)",
-    phenotype = "Associated with green/hazel eye color variations."
-  ),
-  "Amber" = list(
-    # rs1540771 (ASIP)
-    seq = "TGTAATCCCGGCACTTTGGGAGGCCGAGGTGGGCGGATCACGAGGTCAGGAGATCGAGACCATCTTGGCTAACATGGTGAAACCCCGTCTCTACTAAAAAT",
-    snp_pos = 52,
-    locus = "chr20:34,138,092 (hg38)",
-    snp_id = "rs1540771 (ASIP)",
-    phenotype = "Associated with golden/amber eye color."
-  ),
-  "Grey" = list(
-    # rs12896399 (SLC24A4)
-    seq = "CATGCACCACCATGCCTGGCTAATTTTTGTTCTTTAGTAGAGATGGGGTTTTACCATATTGGCAAGGCTGGTCTCAAACTCCTGACCTCAAACAATCCACC",
-    snp_pos = 52,
-    locus = "chr14:92,113,279 (hg38)",
-    snp_id = "rs12896399 (SLC24A4)",
-    phenotype = "Associated with blue/grey eye color and blonde hair."
-  ),
-  "Light Blue" = list(
-    # rs16891982 (SLC45A2)
-    seq = "TAGACCAGAAACTTTTAGAAGACATCCTTAGGAGAGAGAAAGACTTACAAGAATAAAGTGAGGAAAACACGGAGTTGATGCACAAGCCCCAACATCCAACC",
-    snp_pos = 52,
-    locus = "chr5:33,951,556 (hg38)",
-    snp_id = "rs16891982 (SLC45A2)",
-    phenotype = "Common variant predicting light iris color."
-  ),
-  "Blue/Green" = list(
-    # rs1393350 (TYRP1 locus area)
-    seq = "TCCTGATGGACTCTAGGTAACTTACTCCTTTGCTTTCCAAAAGAGTAATAAGAAAAGCTATATTTAATTTAATGTGGTTCCATTTGTAGAGAGAAATAATA",
-    snp_pos = 52,
-    locus = "chr11:89,010,977 (hg38)",
-    snp_id = "rs1393350 (near TYRP1)",
-    phenotype = "Associated with blue/green eye color variations."
-  ),
-  "Red" = list(
-    # rs1042602 (TYR)
-    seq = "AACAAACACAAAAATAGACAAATAGGATTACTTCAAACTAAAAATCTCCAAGCGACCAAGAAAACAATTAACATGATAGACAGACAACTTACACAATAGG",
-    snp_pos = 51,
-    locus = "chr11:89,230,557 (hg38)",
-    snp_id = "rs1042602 (TYR)",
-    phenotype = "Associated with oculocutaneous albinism (Reddish/Pink eyes)."
-  ),
-  # Nose targets
-  "Nose Wing Breadth" = list(
-    seq = "ATCTCTTTATGGGTGCTCTTCAGGGGTATCTTTTCAGGGTTCTTGGTCAGCTGGTAAGTGTTACAATAATATCTCTTTTGAATATGTAACTATTATGCATT",
-    snp_pos = 52,
-    locus = "chr20:22,060,939 (hg38)",
-    snp_id = "rs927833 (PAX1)",
-    phenotype = "Associated with nose wing breadth."
-  ),
-  "Nose Protrusion" = list(
-    seq = "GCTTATCACCAACTTTATGAAACTTACTGACTCTAAGTAGAGAACGAGCCGGTCAGGTTTCAAGTTTTTCTTAAATGTCAATATTCTAAAAAAGAAAGCTG",
-    snp_pos = 52,
-    locus = "chr4:153,910,747 (hg38)",
-    snp_id = "rs2045323 (DCHS2)",
-    phenotype = "Associated with nose protrusion and tip angle."
-  ),
-  "Columella Inclination" = list(
-    seq = "TCAGCAATAAGTTCAGTATATGTCTATATACTTTGGGAAGTAGTTTTTGCATTGCTCAGCACCCTGTATTGCTCTGTTTCTACAGAGAACACTCTAAGAGA",
-    snp_pos = 52,
-    locus = "chr4:154,314,240 (hg38)",
-    snp_id = "rs12644248 (DCHS2)",
-    phenotype = "Associated with the angle of the columella (base of the nose)."
-  ),
-  "Nose Width" = list(
-    seq = "TGCTACTCCTGATCTCTGCCTCCCAGCAGCTTCTGTCTAGCCTGCTGTCACCAGTCATGGGTTGGGATGGCCCTCTGTGTCTCAACGCAAAGGCCACACTT",
-    snp_pos = 52,
-    locus = "chr20:4,863,948 (hg38)",
-    snp_id = "rs2206437 (DHX35)",
-    phenotype = "Associated with wider and lower nose morphology."
-  ),
-  "Nose Length" = list(
-    seq = "CTCTGGCCTGCCTTGCAGCCTTCGTGTATGAGCCCCGGTCTCACCCCAGGGTGCACCGGGCGCTCCTGTCCACCCCACCCCCGCAGCCCACTGGGCCGGGT",
-    snp_pos = 52,
-    locus = "chr1:116,167,664 (hg38)",
-    snp_id = "rs647711 (IGSF3)",
-    phenotype = "Associated with nasal length and general nose size."
-  ),
-  # Ear targets
-  "Ear Shape" = list(
-    seq = "CATCCCTCTTCAGGCCGAAGCTCTCGGCGAGGTGGCGCCACGTTTTCACAACAGCCTTCTCAGAGTTGTACGTGGAGCTGAGCATTCGGCTAGTCTTCTCG",
-    snp_pos = 52,
-    locus = "chr2:108,897,145 (hg38)",
-    snp_id = "rs3827760 (EDAR)",
-    phenotype = "Associated with ear protrusion and shape (prominent antihelix superior crus)."
-  ),
-  "Lobe Attachment" = list(
-    seq = "aattaggatttgaacccgagcagcctggtcccagagcccatgtgctGGAGCTACAATACCGATCCCTCTGGACAGACAGGTAAACGATGGTTGACCATGGG",
-    snp_pos = 52,
-    locus = "chr3:139,287,822 (hg38)",
-    snp_id = "rs6802174",
-    phenotype = "Strongly associated with earlobe attachment type."
-  ),
-  "Vertical Ear Length" = list(
-    seq = "ttggttAAgaatgaaataaatctgtgttctaatctcatatacgttattaactagacacaaagaccttgagaaagtcattagcccttccagacagtattatt",
-    snp_pos = 52,
-    locus = "chr8:121,878,655 (hg38)",
-    snp_id = "rs7812632",
-    phenotype = "Associated with increased vertical length of the ear."
-  ),
-  "Darwin's Tubercle" = list(
-    seq = "ATGCGTCTCACCCCCAACTTTACAGGTAGGGAGGCTGAGTGGGGACAGAGTATAGTTTCTGCCTCTCTGGCCTGACGCTCTACACTGTCCCACTTTTCTGA",
-    snp_pos = 52,
-    locus = "chr3:139,265,404 (hg38)",
-    snp_id = "rs1948400",
-    phenotype = "Associated with the presence of Darwin's tubercle."
-  ),
-  "Lobe Size" = list(
-    seq = "aaggagttcatgtagtgatgcccaagcactaagttgtgcagctcaaatagtggtggaatgatagggtagatgagcaagaatctgcccaggcagcagcccta",
-    snp_pos = 52,
-    locus = "chr6:142,586,378 (hg38)",
-    snp_id = "rs263156",
-    phenotype = "Associated with earlobe size and tragus size."
-  )
-)
+# Load target configurations
+source("targets/eyes.R")
+source("targets/nose.R")
+source("targets/ears.R")
+
+targets <- c(targets_eyes, targets_nose, targets_ears)
 
 # Organize choices for UI
 choice_list <- list(
-  "Eye Color" = c("Brown/Blue", "Dark Brown", "Green", "Hazel", "Amber", "Grey", "Light Blue", "Blue/Green", "Red"),
-  "Nose Size/Shape" = c("Nose Wing Breadth", "Nose Protrusion", "Columella Inclination", "Nose Width", "Nose Length"),
-  "Ear Morphology" = c("Ear Shape", "Lobe Attachment", "Vertical Ear Length", "Darwin's Tubercle", "Lobe Size")
+  "Eye Color" = names(targets_eyes),
+  "Nose Size/Shape" = names(targets_nose),
+  "Ear Morphology" = names(targets_ears)
 )
 
 # UI definition

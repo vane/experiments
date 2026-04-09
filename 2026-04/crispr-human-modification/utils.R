@@ -25,7 +25,7 @@ design_guides <- function(sequence, pam = "NGG", guide_len = 20) {
   # Filter valid fwd guides
   fwd_guides <- fwd_guides[fwd_guides$Start > 0, ]
   if (nrow(fwd_guides) > 0) {
-    fwd_guides$Sequence <- sapply(1:nrow(fwd_guides), function(i) {
+    fwd_guides$Sequence <- sapply(seq_len(nrow(fwd_guides)), function(i) {
       as.character(Biostrings::subseq(dna_seq, fwd_guides$Start[i], fwd_guides$End[i]))
     })
   }
@@ -45,7 +45,7 @@ design_guides <- function(sequence, pam = "NGG", guide_len = 20) {
   # Filter valid rev guides
   rev_guides <- rev_guides[rev_guides$End <= Biostrings::nchar(dna_seq), ]
   if (nrow(rev_guides) > 0) {
-    rev_guides$Sequence <- sapply(1:nrow(rev_guides), function(i) {
+    rev_guides$Sequence <- sapply(seq_len(nrow(rev_guides)), function(i) {
       # Extract forward seq and RC it to get guide + PAM sequence
       # PAM is at the end of the guide (on the reverse strand)
       # PAM on rev corresponds to first 3 chars on forward sequence
