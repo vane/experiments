@@ -5,8 +5,9 @@ source("utils.R")
 source("targets/eyes.R")
 source("targets/nose.R")
 source("targets/ears.R")
+source("targets/teeth.R")
 
-targets <- c(targets_eyes, targets_nose, targets_ears)
+targets <- c(targets_eyes, targets_nose, targets_ears, targets_teeth)
 
 context("CRISPR Design Logic")
 
@@ -27,7 +28,7 @@ for (name in names(targets)) {
     
     # Known targets that do NOT have a guide hitting the SNP in the 101bp context
     # based on previous analysis. We expect them to have 0 hits but still pass the test.
-    no_hit_expected <- c("Columella Inclination", "Vertical Ear Length")
+    no_hit_expected <- c("Columella Inclination", "Vertical Ear Length", "Tooth Shape/Size (WNT10A)")
     
     if (name %in% no_hit_expected) {
       expect_equal(nrow(targeted), 0, label = paste("Expected 0 hits for", name))

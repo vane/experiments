@@ -20,12 +20,20 @@ Ear shape and size are also heritable traits with several identified genetic dri
 - **TBX15/WARS2**: Locus associated with lobe attachment and size.
 - **8q24.13**: Region associated with vertical ear length.
 
+### Teeth Morphology
+Dental development is regulated by a complex network of signaling pathways (Wnt, BMP, FGF, Shh):
+- **PAX9/MSX1**: Critical transcription factors for early odontogenesis; variations are linked to non-syndromic tooth agenesis.
+- **WNT10A**: Key regulator of tooth number, shape, and size.
+- **PITX2**: Determines tooth size and the patterning of the dental lamina.
+- **EDAR**: Influences incisor shoveling and overall tooth crown dimensions.
+
 ## Application Features
 
 - **Multi-Trait Support:** 
   - **Eye Color:** Brown/Blue, Dark Brown, Green, Hazel, Amber, Grey, Light Blue, Blue/Green, Red/Albinism, and Sectoral Heterochromia.
   - **Nose Morphology:** Wing Breadth, Protrusion, Columella Inclination, Width, and Length.
   - **Ear Morphology:** Shape, Lobe Attachment, Vertical Length, Darwin's Tubercle, and Lobe Size.
+  - **Teeth Morphology:** Tooth Agenesis (PAX9/MSX1), Shape/Size (WNT10A/PITX2), and Incisor Shoveling.
 - **Data Persistence:** Genomic sequences are stored as JSON artifacts in the `data/` directory.
 - **Sequence Visualization:** Displays the genomic context and highlights the target SNP for each locus.
 - **gRNA Design:** Uses the Bioconductor `Biostrings` library to search for "NGG" PAM sites and design custom length guides.
@@ -102,6 +110,16 @@ The following genomic sequences were fetched from the UCSC Genome Browser (hg38)
 | Vertical Length | rs7812632 | chr8 | 121,878,655 | `data/rs7812632.json` |
 | Darwin's Tubercle | rs1948400 | chr3 | 139,265,404 | `data/rs1948400.json` |
 | Lobe Size | rs263156 | chr6 | 142,586,378 | `data/rs263156.json` |
+
+### Teeth Morphology Targets
+
+| Trait | SNP ID | Chromosome | Position (hg38) | Artifact File |
+|-------|--------|------------|-----------------|---------------|
+| Tooth Agenesis (PAX9) | rs4904210 | chr14 | 36,666,548 | `data/rs4904210.json` |
+| Tooth Agenesis (MSX1) | rs8670 | chr4 | 4,863,149 | `data/rs8670.json` |
+| Tooth Shape/Size | rs10168648 | chr2 | 35,202,027 | `data/rs10168648.json` |
+| Tooth Size | rs3866831 | chr4 | 110,810,958 | `data/rs3866831.json` |
+| Incisor Shoveling | rs3827760 | chr2 | 108,897,145 | `data/rs3827760.json` |
 
 ## Disclaimer
 

@@ -107,3 +107,30 @@ curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr3;sta
 ```bash
 curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr6;start=142586327;end=142586428" > data/rs263156.json
 ```
+
+## Teeth Morphology
+
+### Tooth Agenesis (rs4904210)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr14;start=36666497;end=36666598" > data/rs4904210.json
+```
+
+### Tooth Agenesis (rs8670)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr4;start=4863098;end=4863199" > data/rs8670.json
+```
+
+### Tooth Shape/Size (rs10168648)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr2;start=35201976;end=35202077" > data/rs10168648.json
+```
+
+### Tooth Size (rs3866831)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr4;start=110810907;end=110811008" > data/rs3866831.json
+```
+
+### Incisor Shoveling (rs3827760)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr2;start=108897094;end=108897195" > data/rs3827760.json
+```
