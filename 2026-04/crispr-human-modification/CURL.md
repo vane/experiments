@@ -166,3 +166,175 @@ curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr2;sta
 ```bash
 curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr1;start=151430604;end=151430705" > data/rs16833231.json
 ```
+
+## Martin-Schultz Scale (1a-16)
+
+### 1a: Pale Blue Iris (rs4778219)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=28126491;end=28126592" > data/rs4778219.json
+```
+
+### 1b: Light Blue Iris (rs8024968)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=28132515;end=28132616" > data/rs8024968.json
+```
+
+### 1c: Sky Blue Iris (rs7183877)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=28138182;end=28138183" > data/rs7183877.json
+```
+
+### 2a: Blue Iris (rs11638447)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=28144839;end=28144840" > data/rs11638447.json
+```
+
+### 2b: Dark Blue Iris (rs3935591)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=28151404;end=28151405" > data/rs3935591.json
+```
+
+### 3: Blue-Gray Iris (rs238538)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr14;start=92045234;end=92045335" > data/rs238538.json
+```
+
+### 4a: Light Gray Iris (rs12896399)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr14;start=92113228;end=92113329" > data/rs12896399.json
+```
+
+### 4b: Dark Gray Iris (rs12976356)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr14;start=92156789;end=92156890" > data/rs12976356.json
+```
+
+### 5: Blue-Gray with Yellow/Brown Spots (rs4778138)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=28090623;end=28090724" > data/rs4778138.json
+```
+
+### 6: Gray-Green with Yellow/Brown Spots (rs1126809)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr11;start=89284742;end=89284843" > data/rs1126809.json
+```
+
+### 7: Green Iris (rs12203592)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr6;start=396271;end=396372" > data/rs12203592.json
+```
+
+### 8: Green with Yellow/Brown Spots (rs1393350)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr11;start=89010926;end=89011027" > data/rs1393350.json
+```
+
+### 9: Amber Iris (rs1540771)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr20;start=34138041;end=34138142" > data/rs1540771.json
+```
+
+### 10: Hazel Iris (rs1800407)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=27985121;end=27985222" > data/rs1800407.json
+```
+
+### 11: Light Brown Iris (rs1667394)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=28284985;end=28285086" > data/rs1667394.json
+```
+
+### 12: Medium Brown Iris (rs12194118)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=27890123;end=27890224" > data/rs12194118.json
+```
+
+### 13: Dark Brown/Mahogany Iris (rs1800401)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=28014856;end=28014957" > data/rs1800401.json
+```
+
+### 14: Brown-Black (Deep Brown) Iris (rs2238288)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr6;start=401182;end=401283" > data/rs2238288.json
+```
+
+### 15: Black-Brown Iris (rs1695778)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr5;start=33968515;end=33968616" > data/rs1695778.json
+```
+
+### 16: Black Iris (rs12194118-AA)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=27890123;end=27890224" > data/rs12194118_aa.json
+```
+
+### 4a: Light Gray Iris (rs12896399)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr14;start=92113228;end=92113329" > data/rs12896399.json
+```
+
+### 4b: Dark Gray Iris (rs12976356)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr14;start=92156789;end=92156890" > data/rs12976356.json
+```
+
+### 5: Blue-Gray with Yellow/Brown Spots (rs4778138)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=28090622;end=28090623" > data/rs4778138.json
+```
+
+### 6: Gray-Green with Yellow/Brown Spots (rs1126809)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr11;start=89284741;end=89284742" > data/rs1126809.json
+```
+
+### 7: Green Iris (rs12203592)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr6;start=396271;end=396372" > data/rs12203592.json
+```
+
+### 8: Green with Yellow/Brown Spots (rs1393350)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr11;start=89010926;end=89011027" > data/rs1393350.json
+```
+
+### 9: Amber Iris (rs1540771)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr20;start=34138041;end=34138142" > data/rs1540771.json
+```
+
+### 10: Hazel Iris (rs1800407)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=27985121;end=27985222" > data/rs1800407.json
+```
+
+### 11: Light Brown Iris (rs1667394)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=28284984;end=28284985" > data/rs1667394.json
+```
+
+### 12: Medium Brown Iris (rs12194118)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=27920567;end=27920568" > data/rs12194118.json
+```
+
+### 13: Dark Brown/Mahogany Iris (rs1800401)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=28014856;end=28014957" > data/rs1800401.json
+```
+
+### 14: Brown-Black (Deep Brown) Iris (rs2238288)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr6;start=401182;end=401183" > data/rs2238288.json
+```
+
+### 15: Black-Brown Iris (rs1695778)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr5;start=33968515;end=33968516" > data/rs1695778.json
+```
+
+### 16: Black Iris (rs12194118-AA)
+```bash
+curl -s "https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr15;start=27890123;end=27890124" > data/rs12194118_aa.json
+```

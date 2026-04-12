@@ -7,6 +7,29 @@ This project provides a template R/Shiny application for designing CRISPR/Cas9 g
 ### Eye Color
 Eye color is primarily determined by the expression levels of the `OCA2` gene. A critical regulatory element for `OCA2` is located in an intron of the neighboring `HERC2` gene. Specifically, the Single Nucleotide Polymorphism (SNP) **rs12913832** acts as an enhancer.
 
+#### Martin-Schultz Eye Color Scale
+The Martin-Schultz scale provides a standardized classification for eye color:
+- 1a: Light blue/blue
+- 1b: Blue/light blue
+- 1c: Light blue
+- 2a: Blue/blue-grey
+- 2b: Blue-grey
+- 3: Blue-grey
+- 4a: Grey-green/green
+- 4b: Green
+- 5: Grey
+- 6: Light brown
+- 7: Brown
+- 8: Dark brown
+- 9: Dark brown/light brown
+- 10: Brown
+- 11: Brown-grey
+- 12: Green-grey/brown
+- 13: Light brown/green
+- 14: Light brown
+- 15: Light brown/grey-brown
+- 16: Black-brown
+
 ### Nose Morphology
 Facial morphology, including nose size and shape, is a complex polygenic trait. Several genes have been identified as key regulators:
 - **PAX1**: Associated with nose wing breadth.
