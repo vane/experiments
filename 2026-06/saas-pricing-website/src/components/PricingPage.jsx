@@ -3,18 +3,14 @@ import React, { useState } from 'react';
 import {
   Container,
   Grid,
-  Card,
-  CardContent,
-  Typography,
-  Button,
   Box,
+  Typography,
   Switch,
   FormControlLabel,
   Chip,
-  Divider,
 } from '@mui/material';
-import { CheckCircle, RadioButtonUnchecked } from '@mui/icons-material';
 import { pricingData } from '../data/pricingData';
+import PricingComponent from './PricingComponent';
 
 const PricingPage = () => {
   const [isAnnual, setIsAnnual] = useState(false);
@@ -55,120 +51,13 @@ const PricingPage = () => {
         )}
       </Box>
 
-      {/* Pricing Cards Grid */}
+      {/* Pricing Cards Grid - Pass full tier object to each component */}
       <Grid container spacing={4} justifyContent="center">
-        {pricingData.map((tier) => {
-          const currentPrice = isAnnual ? tier.annualPrice : tier.monthlyPrice;
-          const savings = Math.round((1 - (tier.annualPrice / (tier.monthlyPrice * 12))) * 100);
-
-          return (
-            <Grid item key={tier.id} xs={12} md={4}>
-              <Card
-                sx={{
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  position: 'relative',
-                  border: tier.isPopular ? '2px solid' : '1px solid',
-                  borderColor: tier.isPopular ? 'primary.main' : 'divider',
-                  boxShadow: tier.isPopular ? 6 : 1,
-                  transition: 'box-shadow 0.3s ease',
-                  '&:hover': {
-                    boxShadow: tier.isPopular ? 10 : 3,
-                  },
-                }}
-              >
-                {/* Popular Badge */}
-                {tier.isPopular && (
-                  <Chip
-                    label="Most Popular"
-                    color="primary"
-                    size="small"
-                    sx={{
-                      position: 'absolute',
-                      top: 16,
-                      right: 16,
-                      zIndex: 1,
-                      fontWeight: 500,
-                    }}
-                  />
-                )}
-
-                <CardContent sx={{ flexGrow: 1, p: 4 }}>
-                  {/* Tier Name */}
-                  <Typography
-                    variant="h5"
-                    component="h3"
-                    gutterBottom
-                    sx={{ textAlign: 'center', fontWeight: 600 }}
-                  >
-                    {tier.name}
-                  </Typography>
-
-                  {/* Price */}
-                  <Box sx={{ textAlign: 'center', mb: 2 }}>
-                    <Typography variant="h3" component="div" color="text.primary" fontWeight={700}>
-                      ${currentPrice}
-                    </Typography>
-                    <Typography variant="body1" color="text.secondary">
-                      {isAnnual ? '/year, billed annually' : '/month'}
-                    </Typography>
-                    {isAnnual && (
-                      <Typography variant="body2" color="success.main" sx={{ mt: 0.5 }}>
-                        Save {savings}% with annual billing
-                      </Typography>
-                    )}
-                  </Box>
-
-                  {/* Description */}
-                  <Typography
-                    variant="body1"
-                    color="text.secondary"
-                    sx={{ mb: 3, textAlign: 'center' }}
-                  >
-                    {tier.description}
-                  </Typography>
-
-                  <Divider sx={{ mb: 3 }} />
-
-                  {/* Features List */}
-                  <Box component="ul" sx={{ listStyle: 'none', p: 0, m: 0, mb: 4 }}>
-                    {tier.features.map((feature, idx) => (
-                      <Box
-                        component="li"
-                        key={idx}
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          mb: 1.5,
-                          color: feature.included ? 'text.primary' : 'text.disabled',
-                        }}
-                      >
-                        {feature.included ? (
-                          <CheckCircle sx={{ mr: 1.5, fontSize: 20, color: 'primary.main' }} />
-                        ) : (
-                          <RadioButtonUnchecked sx={{ mr: 1.5, fontSize: 20 }} />
-                        )}
-                        <Typography variant="body2">{feature.text}</Typography>
-                      </Box>
-                    ))}
-                  </Box>
-
-                  {/* CTA Button */}
-                  <Button
-                    variant={tier.isPopular ? 'contained' : 'outlined'}
-                    fullWidth
-                    size="large"
-                    href={tier.ctaLink}
-                    sx={{ py: 1.5, textTransform: 'none', fontWeight: 600 }}
-                  >
-                    {tier.ctaText}
-                  </Button>
-                </CardContent>
-              </Card>
-            </Grid>
-          );
-        })}
+        {pricingData.map((tier) => (
+          <Grid item key={tier.id} xs={12} md={4}>
+            <PricingComponent tier={tier} isAnnual={isAnnual} />
+          </Grid>
+        ))}
       </Grid>
 
       {/* Footer Note */}
