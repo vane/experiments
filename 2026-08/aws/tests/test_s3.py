@@ -453,6 +453,67 @@ def test_head_object_conditional_headers(s3):
     assert err.value.response["ResponseMetadata"]["HTTPStatusCode"] == 412
 
 
+# --- put object conditions (If-Match / If-None-Match) ---
+
+
+def test_put_object_if_none_match_star(s3):
+    # the classic create-only-if-absent guard: * matches any existing object
+    s3.put_object(Bucket="data", Key="_cond/new.txt", Body=b"one\n", IfNoneMatch="*")
+
+    with pytest.raises(ClientError) as err:
+        s3.put_object(Bucket="data", Key="_cond/new.txt", Body=b"two\n", IfNoneMatch="*")
+    assert err.value.response["Error"]["Code"] == "PreconditionFailed"
+    assert err.value.response["ResponseMetadata"]["HTTPStatusCode"] == 412
+    # the failed write leaves the original object in place
+    assert s3.get_object(Bucket="data", Key="_cond/new.txt")["Body"].read() == b"one\n"
+
+
+def test_put_object_if_match(s3):
+    s3.put_object(Bucket="data", Key="_cond/match.txt", Body=b"first\n")
+    etag = s3.head_object(Bucket="data", Key="_cond/match.txt")["ETag"]
+    # a matching ETag lets the overwrite through
+    s3.put_object(Bucket="data", Key="_cond/match.txt", Body=b"second\n", IfMatch=etag)
+    assert s3.get_object(Bucket="data", Key="_cond/match.txt")["Body"].read() == b"second\n"
+
+    # a mismatching ETag fails with 412 and leaves the object untouched
+    with pytest.raises(ClientError) as err:
+        s3.put_object(Bucket="data", Key="_cond/match.txt", Body=b"third\n", IfMatch='"deadbeef"')
+    assert err.value.response["Error"]["Code"] == "PreconditionFailed"
+    assert s3.get_object(Bucket="data", Key="_cond/match.txt")["Body"].read() == b"second\n"
+
+
+def test_put_object_if_match_absent_object(s3):
+    # an absent object has no ETag to match, so If-Match always fails
+    for cond in ('"anything"', "*"):
+        with pytest.raises(ClientError) as err:
+            s3.put_object(Bucket="data", Key="_cond/absent.txt", Body=b"x\n", IfMatch=cond)
+        assert err.value.response["Error"]["Code"] == "PreconditionFailed"
+        assert err.value.response["ResponseMetadata"]["HTTPStatusCode"] == 412
+
+
+def test_put_object_if_none_match_etag(s3):
+    s3.put_object(Bucket="data", Key="_cond/nm.txt", Body=b"one\n")
+    etag = s3.head_object(Bucket="data", Key="_cond/nm.txt")["ETag"]
+    # a matching ETag blocks the overwrite
+    with pytest.raises(ClientError) as err:
+        s3.put_object(Bucket="data", Key="_cond/nm.txt", Body=b"two\n", IfNoneMatch=etag)
+    assert err.value.response["Error"]["Code"] == "PreconditionFailed"
+    assert s3.get_object(Bucket="data", Key="_cond/nm.txt")["Body"].read() == b"one\n"
+
+    # a mismatching ETag lets the overwrite through
+    s3.put_object(Bucket="data", Key="_cond/nm.txt", Body=b"two\n", IfNoneMatch='"deadbeef"')
+    assert s3.get_object(Bucket="data", Key="_cond/nm.txt")["Body"].read() == b"two\n"
+
+
+def test_failed_put_leaves_connection_usable(s3):
+    # an error returned before the write must still drain the request body,
+    # or the next request on the same connection would be mis-framed
+    with pytest.raises(ClientError) as err:
+        s3.put_object(Bucket="_missing", Key="x.txt", Body=b"data\n")
+    assert err.value.response["Error"]["Code"] == "NoSuchBucket"
+    assert s3.get_object(Bucket="data", Key="hello.txt")["Body"].read() == b"hello from fs-s3\n"
+
+
 # --- delete bucket ---
 
 

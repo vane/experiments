@@ -15,7 +15,10 @@ objects: `ListBuckets`, `CreateBucket`, `HeadBucket`, `DeleteBucket`,
 returns 416 `InvalidRange`. They also honour the `If-Match` /
 `If-None-Match` conditional headers: a failed `If-Match` returns 412
 `PreconditionFailed`, and a matched `If-None-Match` returns 304 Not
-Modified. `CopyObject` (a `PutObject` carrying the
+Modified. On `PutObject` the same headers guard the write: any failed
+precondition aborts it with 412 `PreconditionFailed` (`If-None-Match: *`
+is the usual create-only-if-absent guard). `CopyObject` (a `PutObject`
+carrying the
 `x-amz-copy-source` header, so `s3.copy_object`) copies the source
 object's bytes to the destination and gives the new object a fresh
 `LastModified`; a missing source key returns `NoSuchKey`. `DeleteObjects`

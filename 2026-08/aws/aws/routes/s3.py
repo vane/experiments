@@ -12,6 +12,10 @@ and DeleteObject.  CopyObject is a ``PutObject`` that carries the
 destination, giving the new object a fresh ``LastModified``.  DeleteObjects
 is the ``?delete=`` batch endpoint: it removes several keys in one request,
 reporting each as ``Deleted`` (``Error`` for a key that escapes the bucket).
+On a ``PutObject`` the ``If-Match``/``If-None-Match`` headers guard the
+write instead: any failed precondition aborts it with 412
+``PreconditionFailed`` (``If-None-Match: *`` is the usual
+create-only-if-absent guard).
 
 Everything is read from, and written to, the filesystem on every
 request - no state, no cache.  Request signatures are accepted but
@@ -247,8 +251,16 @@ def _etag_matches(value: str, etag: str) -> bool:
     )
 
 
+def _precondition_failed() -> Response:
+    """412 for a failed If-Match / If-None-Match precondition."""
+    return _error(
+        412, "PreconditionFailed",
+        "At least one of the preconditions you specified did not hold",
+    )
+
+
 def _precondition_response(request: Request, m: dict) -> Response | None:
-    """Evaluate the If-Match / If-None-Match headers against an object.
+    """Evaluate the If-Match / If-None-Match headers against an existing object.
 
     Returns a 412 ``PreconditionFailed`` when ``If-Match`` does not match, a
     304 ``Not Modified`` when ``If-None-Match`` does, or None when both hold
@@ -257,10 +269,7 @@ def _precondition_response(request: Request, m: dict) -> Response | None:
     """
     if_match = request.headers.get("if-match")
     if if_match is not None and not _etag_matches(if_match, m["etag"]):
-        return _error(
-            412, "PreconditionFailed",
-            "At least one of the preconditions you specified did not hold",
-        )
+        return _precondition_failed()
     if_none_match = request.headers.get("if-none-match")
     if if_none_match is not None and _etag_matches(if_none_match, m["etag"]):
         return Response(
@@ -270,6 +279,32 @@ def _precondition_response(request: Request, m: dict) -> Response | None:
                 "Last-Modified": format_datetime(m["mtime"]),
             },
         )
+    return None
+
+
+def _put_precondition_response(request: Request, path: Path) -> Response | None:
+    """Evaluate the If-Match / If-None-Match headers for a ``PutObject``.
+
+    A failed precondition returns a 412 ``PreconditionFailed``; None means
+    the write may proceed.  An absent object has no ETag, so ``If-Match`` can
+    never succeed on it, while ``If-None-Match: *`` is the usual
+    create-only-if-absent guard.  ``If-Match`` is evaluated first.
+    """
+    if_match = request.headers.get("if-match")
+    if if_match is None and request.headers.get("if-none-match") is None:
+        return None
+    existing_etag = _meta(path)["etag"] if path.is_file() else None
+    if if_match is not None and (
+        existing_etag is None or not _etag_matches(if_match, existing_etag)
+    ):
+        return _precondition_failed()
+    if_none_match = request.headers.get("if-none-match")
+    if (
+        if_none_match is not None
+        and existing_etag is not None
+        and _etag_matches(if_none_match, existing_etag)
+    ):
+        return _precondition_failed()
     return None
 
 
@@ -328,10 +363,15 @@ async def put_object(request: Request, bucket: str, key: str) -> Response:
     copy_source = request.headers.get("x-amz-copy-source")
     if copy_source is not None:
         return _copy_object(bucket, key, copy_source)
+    # read the body up front: an unread body would desync a keep-alive
+    # connection if an error is returned before the write
+    data = await request.body()
     p = _object_path(bucket, key)
     if isinstance(p, Response):
         return p
-    data = await request.body()
+    pre = _put_precondition_response(request, p)
+    if pre is not None:
+        return pre
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(data)
     etag = hashlib.md5(data).hexdigest()
@@ -429,6 +469,9 @@ def _parse_delete_body(body: bytes) -> tuple[list[str] | None, bool]:
 @router.post("/{bucket}")
 async def delete_objects(request: Request, bucket: str) -> Response:
     """DeleteObjects: remove several keys in one ``?delete=`` request."""
+    # read the body up front (as in put_object) so an early error response
+    # doesn't leave an unread body on the connection
+    body = await request.body()
     if "delete" not in request.query_params:
         return _error(400, "InvalidRequest", "Expected a batch-delete request.")
     base = _bucket_dir(bucket)
@@ -437,7 +480,7 @@ async def delete_objects(request: Request, bucket: str) -> Response:
     if not base.is_dir():
         return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
 
-    keys, quiet = _parse_delete_body(await request.body())
+    keys, quiet = _parse_delete_body(body)
     if keys is None:
         return _error(400, "MalformedXML", "The XML you provided was not well-formed.")
 
