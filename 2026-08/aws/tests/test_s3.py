@@ -341,6 +341,72 @@ def test_copy_object_missing_source_bucket(s3):
     assert err.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
 
 
+# --- delete objects (batch) ---
+
+
+def test_delete_objects_batch(s3):
+    s3.put_object(Bucket="data", Key="_del/a.txt", Body=b"a\n")
+    s3.put_object(Bucket="data", Key="_del/b.txt", Body=b"b\n")
+    resp = s3.delete_objects(
+        Bucket="data",
+        Delete={"Objects": [{"Key": "_del/a.txt"}, {"Key": "_del/b.txt"}]},
+    )
+    assert {d["Key"] for d in resp["Deleted"]} == {"_del/a.txt", "_del/b.txt"}
+    assert resp.get("Errors", []) == []
+    for key in ("_del/a.txt", "_del/b.txt"):
+        with pytest.raises(ClientError) as err:
+            s3.get_object(Bucket="data", Key=key)
+        assert err.value.response["Error"]["Code"] == "NoSuchKey"
+    assert s3.list_objects_v2(Bucket="data", Prefix="_del/").get("Contents", []) == []
+
+
+def test_delete_objects_missing_keys_are_deleted(s3):
+    s3.put_object(Bucket="data", Key="_del/one.txt", Body=b"1\n")
+    resp = s3.delete_objects(
+        Bucket="data",
+        Delete={
+            "Objects": [
+                {"Key": "_del/one.txt"},
+                {"Key": "_del/never-existed.txt"},
+            ]
+        },
+    )
+    assert {d["Key"] for d in resp["Deleted"]} == {"_del/one.txt", "_del/never-existed.txt"}
+    assert resp.get("Errors", []) == []
+
+
+def test_delete_objects_quiet(s3):
+    s3.put_object(Bucket="data", Key="_del/quiet.txt", Body=b"q\n")
+    resp = s3.delete_objects(
+        Bucket="data",
+        Delete={"Objects": [{"Key": "_del/quiet.txt"}], "Quiet": True},
+    )
+    assert "Deleted" not in resp
+    with pytest.raises(ClientError):
+        s3.get_object(Bucket="data", Key="_del/quiet.txt")
+
+
+def test_delete_objects_escaping_key_is_error(s3):
+    resp = s3.delete_objects(
+        Bucket="data",
+        Delete={
+            "Objects": [{"Key": "_del/ok.txt"}, {"Key": "../escape.txt"}]
+        },
+    )
+    assert {d["Key"] for d in resp["Deleted"]} == {"_del/ok.txt"}
+    assert {e["Key"]: e["Code"] for e in resp["Errors"]} == {"../escape.txt": "NoSuchKey"}
+
+
+def test_delete_objects_missing_bucket(s3):
+    with pytest.raises(ClientError) as err:
+        s3.delete_objects(
+            Bucket="_missing",
+            Delete={"Objects": [{"Key": "x.txt"}]},
+        )
+    assert err.value.response["Error"]["Code"] == "NoSuchBucket"
+    assert err.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
+
+
 # --- delete bucket ---
 
 

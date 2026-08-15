@@ -5,10 +5,12 @@ manage, store and retrieve objects.  Buckets are directories under
 ``DATA_DIR``; a bucket's objects are the files beneath it.  Supported
 calls: ListBuckets, CreateBucket, HeadBucket, DeleteBucket, ListObjects
 (v1 and v2, with ``Prefix``/``Delimiter``), HeadObject and GetObject
-(both honouring the ``Range`` header), PutObject, CopyObject and
-DeleteObject.  CopyObject is a ``PutObject`` that carries the
+(both honouring the ``Range`` header), PutObject, CopyObject, DeleteObjects
+and DeleteObject.  CopyObject is a ``PutObject`` that carries the
 ``x-amz-copy-source`` header; it copies the source object's bytes to the
-destination, giving the new object a fresh ``LastModified``.
+destination, giving the new object a fresh ``LastModified``.  DeleteObjects
+is the ``?delete=`` batch endpoint: it removes several keys in one request,
+reporting each as ``Deleted`` (``Error`` for a key that escapes the bucket).
 
 Everything is read from, and written to, the filesystem on every
 request - no state, no cache.  Request signatures are accepted but
@@ -22,6 +24,7 @@ import mimetypes
 import os
 import re
 import shutil
+import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from pathlib import Path
@@ -344,6 +347,74 @@ async def get_object(request: Request, bucket: str, key: str) -> Response:
     headers["Content-Range"] = f"bytes {start}-{end}/{m['size']}"
     headers["Content-Length"] = str(len(data))
     return Response(data, status_code=206, headers=headers, media_type=m["type"])
+
+
+def _local(tag: str) -> str:
+    """Strip an XML namespace (``{uri}name`` -> ``name``)."""
+    return tag.rsplit("}", 1)[-1]
+
+
+def _parse_delete_body(body: bytes) -> tuple[list[str] | None, bool]:
+    """Parse a ``?delete=`` request body into ``(keys, quiet)``.
+
+    The body is ``<Delete><Object><Key>…</Key></Object>…[<Quiet>true</Quiet>]
+    </Delete>`` (namespaced).  Returns ``(None, False)`` when the body is not
+    well-formed XML.
+    """
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError:
+        return None, False
+    keys: list[str] = []
+    quiet = False
+    for el in root.iter():
+        name = _local(el.tag)
+        if name == "Object":
+            for child in el:
+                if _local(child.tag) == "Key":
+                    keys.append(child.text or "")
+        elif name == "Quiet":
+            quiet = (el.text or "").strip().lower() == "true"
+    return keys, quiet
+
+
+@router.post("/{bucket}")
+async def delete_objects(request: Request, bucket: str) -> Response:
+    """DeleteObjects: remove several keys in one ``?delete=`` request."""
+    if "delete" not in request.query_params:
+        return _error(400, "InvalidRequest", "Expected a batch-delete request.")
+    base = _bucket_dir(bucket)
+    if base is None:
+        return _error(400, "InvalidBucketName", "The specified bucket is not valid.")
+    if not base.is_dir():
+        return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
+
+    keys, quiet = _parse_delete_body(await request.body())
+    if keys is None:
+        return _error(400, "MalformedXML", "The XML you provided was not well-formed.")
+
+    deleted: list[str] = []
+    errors: list[tuple[str, str, str]] = []
+    for key in keys:
+        p = _object_path(bucket, key)
+        if isinstance(p, Response):
+            # the bucket is valid, so the only error here is an escaping key
+            errors.append((key, "NoSuchKey", "The specified key does not exist."))
+            continue
+        p.unlink(missing_ok=True)  # idempotent, like DeleteObject
+        deleted.append(key)
+
+    if quiet:
+        return Response(status_code=200)
+
+    parts = [f"<DeleteResult {S3_NS}>"]
+    parts += [f"<Deleted><Key>{escape(k)}</Key></Deleted>" for k in deleted]
+    parts += [
+        f"<Error><Key>{escape(k)}</Key><Code>{code}</Code><Message>{escape(message)}</Message></Error>"
+        for (k, code, message) in errors
+    ]
+    parts.append("</DeleteResult>")
+    return Response("".join(parts), media_type="application/xml")
 
 
 @router.delete("/{bucket}/{key:path}")

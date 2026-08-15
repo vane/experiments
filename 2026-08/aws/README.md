@@ -7,15 +7,19 @@ from the filesystem per request — no cache, no background indexing.
 Implements the S3 subset boto3 needs to manage, store and retrieve
 objects: `ListBuckets`, `CreateBucket`, `HeadBucket`, `DeleteBucket`,
 `ListObjects` (v1 & v2, with `Prefix` / `Delimiter`), `HeadObject`,
-`GetObject`, `PutObject`, `CopyObject`, `DeleteObject`. `GetObject` and
+`GetObject`, `PutObject`, `CopyObject`, `DeleteObjects` (batch, `?delete=`) and
+`DeleteObject`. `GetObject` and
 `HeadObject` honour the `Range` header: a satisfiable range returns 206 with a
 `Content-Range` covering the requested span (`bytes=start-end`,
 `bytes=start-`, `bytes=-suffix`); an unsatisfiable or malformed range
 returns 416 `InvalidRange`. `CopyObject` (a `PutObject` carrying the
 `x-amz-copy-source` header, so `s3.copy_object`) copies the source
 object's bytes to the destination and gives the new object a fresh
-`LastModified`; a missing source key returns `NoSuchKey`. Signatures are
-accepted but not verified.
+`LastModified`; a missing source key returns `NoSuchKey`. `DeleteObjects`
+(`s3.delete_objects`) removes several keys in one request and reports each as
+`Deleted` in the `DeleteResult` (deleting a missing key is a no-op, like
+`DeleteObject`); a key that escapes the bucket is reported as an `Error`.
+`Quiet` suppresses the result list. Signatures are accepted but not verified.
 
 Buckets are real: each bucket is a directory under `data/`, and object
 keys map to files inside that bucket's directory. `CreateBucket` makes
