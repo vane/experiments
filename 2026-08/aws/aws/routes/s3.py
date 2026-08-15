@@ -469,9 +469,6 @@ def _parse_delete_body(body: bytes) -> tuple[list[str] | None, bool]:
 @router.post("/{bucket}")
 async def delete_objects(request: Request, bucket: str) -> Response:
     """DeleteObjects: remove several keys in one ``?delete=`` request."""
-    # read the body up front (as in put_object) so an early error response
-    # doesn't leave an unread body on the connection
-    body = await request.body()
     if "delete" not in request.query_params:
         return _error(400, "InvalidRequest", "Expected a batch-delete request.")
     base = _bucket_dir(bucket)
@@ -480,6 +477,7 @@ async def delete_objects(request: Request, bucket: str) -> Response:
     if not base.is_dir():
         return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
 
+    body = await request.body()
     keys, quiet = _parse_delete_body(body)
     if keys is None:
         return _error(400, "MalformedXML", "The XML you provided was not well-formed.")
