@@ -153,6 +153,63 @@ def test_key_traversal_is_contained(s3):
     assert err.value.response["Error"]["Code"] == "NoSuchKey"
 
 
+# --- range requests ---
+
+
+def test_get_object_range(s3):
+    body = b"hello from fs-s3\n"
+
+    part = s3.get_object(Bucket="data", Key="hello.txt", Range="bytes=0-4")
+    assert part["Body"].read() == b"hello"
+    assert part["ContentRange"] == "bytes 0-4/17"
+    assert part["ContentLength"] == 5
+    assert part["ETag"]
+    assert part["ResponseMetadata"]["HTTPStatusCode"] == 206
+
+    # an open-ended range runs to the end of the object
+    part = s3.get_object(Bucket="data", Key="hello.txt", Range="bytes=12-")
+    assert part["Body"].read() == body[12:]
+    assert part["ContentRange"] == "bytes 12-16/17"
+
+    # a suffix range takes the last N bytes
+    part = s3.get_object(Bucket="data", Key="hello.txt", Range="bytes=-5")
+    assert part["Body"].read() == body[-5:]
+    assert part["ContentRange"] == "bytes 12-16/17"
+
+    # a suffix longer than the object returns the whole object
+    part = s3.get_object(Bucket="data", Key="hello.txt", Range="bytes=-999")
+    assert part["Body"].read() == body
+    assert part["ContentRange"] == "bytes 0-16/17"
+
+
+def test_get_object_range_unsatisfiable(s3):
+    for rng in ("bytes=17-", "bytes=99-100", "bytes=5-2"):
+        with pytest.raises(ClientError) as err:
+            s3.get_object(Bucket="data", Key="hello.txt", Range=rng)
+        assert err.value.response["Error"]["Code"] == "InvalidRange"
+        assert err.value.response["ResponseMetadata"]["HTTPStatusCode"] == 416
+
+
+def test_head_object_range(s3):
+    head = s3.head_object(Bucket="data", Key="hello.txt", Range="bytes=0-4")
+    assert head["ResponseMetadata"]["HTTPStatusCode"] == 206
+    assert head["ContentRange"] == "bytes 0-4/17"
+    assert head["ContentLength"] == 5
+
+    # without a range the head still reports the full object
+    full = s3.head_object(Bucket="data", Key="hello.txt")
+    assert "ContentRange" not in full
+    assert full["ContentLength"] == 17
+
+
+def test_head_object_range_unsatisfiable(s3):
+    with pytest.raises(ClientError) as err:
+        s3.head_object(Bucket="data", Key="hello.txt", Range="bytes=99-")
+    meta = err.value.response["ResponseMetadata"]
+    assert meta["HTTPStatusCode"] == 416
+    assert meta["HTTPHeaders"]["content-range"] == "bytes */17"
+
+
 # --- put ---
 
 

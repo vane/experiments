@@ -4,8 +4,8 @@ Implements just enough of the S3 REST protocol for a boto3 client to
 manage, store and retrieve objects.  Buckets are directories under
 ``DATA_DIR``; a bucket's objects are the files beneath it.  Supported
 calls: ListBuckets, CreateBucket, HeadBucket, DeleteBucket, ListObjects
-(v1 and v2, with ``Prefix``/``Delimiter``), HeadObject, GetObject,
-PutObject and DeleteObject.
+(v1 and v2, with ``Prefix``/``Delimiter``), HeadObject and GetObject
+(both honouring the ``Range`` header), PutObject and DeleteObject.
 
 Everything is read from, and written to, the filesystem on every
 request - no state, no cache.  Request signatures are accepted but
@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import mimetypes
 import os
+import re
 import shutil
 from datetime import UTC, datetime
 from email.utils import format_datetime
@@ -191,6 +192,38 @@ def _object_headers(m: dict) -> dict:
     }
 
 
+def _parse_range(header: str | None, size: int) -> tuple[int, int] | None:
+    """Resolve a ``Range`` header against a file of ``size`` bytes.
+
+    Returns the inclusive (start, end) span for the ``bytes=start-end``,
+    ``bytes=start-`` and ``bytes=-suffix`` forms, or None when the header
+    is absent.  Raises ValueError for malformed or unsatisfiable ranges.
+    """
+    if header is None:
+        return None
+    match = re.fullmatch(r"bytes\s*=\s*(\d*)\s*-\s*(\d*)", header.strip(), re.IGNORECASE)
+    if match is None or (match[1] == "" and match[2] == ""):
+        raise ValueError("malformed range")
+    start_s, end_s = match.groups()
+    if start_s:
+        start = int(start_s)
+        end = int(end_s) if end_s else size - 1
+    else:  # suffix range: the last N bytes
+        if int(end_s) == 0:
+            raise ValueError("unsatisfiable range")
+        start, end = max(size - int(end_s), 0), size - 1
+    if start > end or start >= size:
+        raise ValueError("unsatisfiable range")
+    return start, end
+
+
+def _range_not_satisfiable(size: int) -> Response:
+    """416 for a malformed or unsatisfiable ``Range`` header."""
+    resp = _error(416, "InvalidRange", "Requested range not satisfied.")
+    resp.headers["Content-Range"] = f"bytes */{size}"
+    return resp
+
+
 @router.put("/{bucket}/{key:path}")
 async def put_object(request: Request, bucket: str, key: str) -> Response:
     p = _object_path(bucket, key)
@@ -209,24 +242,51 @@ async def put_object(request: Request, bucket: str, key: str) -> Response:
 
 
 @router.head("/{bucket}/{key:path}")
-async def head_object(bucket: str, key: str) -> Response:
-    p = _object_path(bucket, key)
-    if isinstance(p, Response):
-        return p
-    if not p.is_file():
-        return _error(404, "NoSuchKey", "The specified key does not exist.")
-    return Response(status_code=200, headers=_object_headers(_meta(p)))
-
-
-@router.get("/{bucket}/{key:path}")
-async def get_object(bucket: str, key: str) -> Response:
+async def head_object(request: Request, bucket: str, key: str) -> Response:
     p = _object_path(bucket, key)
     if isinstance(p, Response):
         return p
     if not p.is_file():
         return _error(404, "NoSuchKey", "The specified key does not exist.")
     m = _meta(p)
-    return Response(p.read_bytes(), headers=_object_headers(m), media_type=m["type"])
+    headers = _object_headers(m)
+    headers["Accept-Ranges"] = "bytes"
+    try:
+        span = _parse_range(request.headers.get("range"), m["size"])
+    except ValueError:
+        return _range_not_satisfiable(m["size"])
+    if span is not None:
+        headers["Content-Range"] = f"bytes {span[0]}-{span[1]}/{m['size']}"
+        headers["Content-Length"] = str(span[1] - span[0] + 1)
+        status = 206
+    else:
+        status = 200
+    return Response(status_code=status, headers=headers)
+
+
+@router.get("/{bucket}/{key:path}")
+async def get_object(request: Request, bucket: str, key: str) -> Response:
+    p = _object_path(bucket, key)
+    if isinstance(p, Response):
+        return p
+    if not p.is_file():
+        return _error(404, "NoSuchKey", "The specified key does not exist.")
+    m = _meta(p)
+    headers = _object_headers(m)
+    headers["Accept-Ranges"] = "bytes"
+    try:
+        span = _parse_range(request.headers.get("range"), m["size"])
+    except ValueError:
+        return _range_not_satisfiable(m["size"])
+    if span is None:
+        return Response(p.read_bytes(), headers=headers, media_type=m["type"])
+    start, end = span
+    with p.open("rb") as f:
+        f.seek(start)
+        data = f.read(end - start + 1)
+    headers["Content-Range"] = f"bytes {start}-{end}/{m['size']}"
+    headers["Content-Length"] = str(len(data))
+    return Response(data, status_code=206, headers=headers, media_type=m["type"])
 
 
 @router.delete("/{bucket}/{key:path}")

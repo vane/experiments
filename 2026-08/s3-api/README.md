@@ -7,8 +7,11 @@ from the filesystem per request — no cache, no background indexing.
 Implements the S3 subset boto3 needs to manage, store and retrieve
 objects: `ListBuckets`, `CreateBucket`, `HeadBucket`, `DeleteBucket`,
 `ListObjects` (v1 & v2, with `Prefix` / `Delimiter`), `HeadObject`,
-`GetObject`, `PutObject`, `DeleteObject`. Signatures are accepted but
-not verified.
+`GetObject`, `PutObject`, `DeleteObject`. `GetObject` and `HeadObject`
+honour the `Range` header: a satisfiable range returns 206 with a
+`Content-Range` covering the requested span (`bytes=start-end`,
+`bytes=start-`, `bytes=-suffix`); an unsatisfiable or malformed range
+returns 416 `InvalidRange`. Signatures are accepted but not verified.
 
 Buckets are real: each bucket is a directory under `data/`, and object
 keys map to files inside that bucket's directory. `CreateBucket` makes
