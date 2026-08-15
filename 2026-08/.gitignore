@@ -1,1 +1,3 @@
-s3-api/data
+data
+__pycache__
+.venv
