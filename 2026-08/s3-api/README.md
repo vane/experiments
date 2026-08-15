@@ -61,13 +61,29 @@ touches ``data/``.
 # fs-sqs
 
 A minimal SQS-compatible boto3 API over in-process queues
-(``aws/api/sqs_api.py``, wired into ``main.py`` alongside the S3 API). Only
-``SendMessage`` is implemented: given a ``MessageBody`` and ``QueueUrl`` it
-puts the body onto a named in-process ``queue.Queue``. Queues live in the
-module-level ``QUEUES`` dict (name -> queue); messages are in-memory only and
-are lost on restart. ``SendMessage`` is compatible with the boto3 SQS client
-— messages are accepted exactly as boto3 sends them and errors like
+(``aws/api/sqs_api.py``, wired into ``main.py`` alongside the S3 API).
+Implemented operations: ``SendMessage``, ``ReceiveMessage``,
+``DeleteMessage``, ``ChangeMessageVisibility``, ``CreateQueue``,
+``DeleteQueue`` and ``GetQueueAttributes``. Queues live in the module-level
+``QUEUES`` dict (name -> queue); messages are in-memory only and are lost
+on restart. Calls are accepted exactly as boto3 sends them and errors like
 ``QueueDoesNotExist`` are surfaced as ``ClientError``.
+
+**Visibility timeout.** A received message is hidden from other receivers
+for its visibility timeout (default 30s). The timeout is set per queue
+(``VisibilityTimeout`` attribute on ``CreateQueue``), per receive (the
+``VisibilityTimeout`` parameter of ``ReceiveMessage``) and can be adjusted
+on the fly with ``ChangeMessageVisibility`` (pass 0 to make the message
+visible immediately). If the message is not deleted before the timeout
+lapses it is redelivered with a fresh ``ReceiptHandle`` and an incremented
+``ApproximateReceiveCount``; a message deleted via ``DeleteMessage`` is gone.
+
+**Dead-letter queue.** ``CreateQueue`` accepts a ``RedrivePolicy`` attribute
+(``{"maxReceiveCount": N, "deadLetterTargetArn": <queue URL or ARN>}``; the
+target must exist and must not be the queue itself). A message that has
+already been received ``maxReceiveCount`` times is moved to the
+dead-letter queue on its next receive instead of being delivered again.
+The policy is reported back by ``GetQueueAttributes``.
 
 ## Run
 
@@ -80,6 +96,7 @@ Served through the same ``main.py`` entrypoint as S3; requests carrying an
 
 ```python
 import boto3
+import json
 
 sqs = boto3.client(
     "sqs",
@@ -88,7 +105,22 @@ sqs = boto3.client(
     aws_secret_access_key="test",
     region_name="us-east-1",
 )
-sqs.send_message(QueueUrl="https://sqs.us-east-1.amazonaws.com/123456789012/demo", MessageBody="hi")
+demo = sqs.create_queue(QueueName="demo")
+sqs.send_message(QueueUrl=demo["QueueUrl"], MessageBody="hi")
+message = sqs.receive_message(QueueUrl=demo["QueueUrl"])["Messages"][0]
+sqs.delete_message(QueueUrl=demo["QueueUrl"], ReceiptHandle=message["ReceiptHandle"])
+
+# with a dead-letter queue:
+poison = sqs.create_queue(QueueName="demo-poison")
+orders = sqs.create_queue(
+    QueueName="orders",
+    Attributes={
+        "VisibilityTimeout": "5",
+        "RedrivePolicy": json.dumps(
+            {"maxReceiveCount": "3", "deadLetterTargetArn": poison["QueueUrl"]}
+        ),
+    },
+)
 ```
 
 ## Test
@@ -96,4 +128,6 @@ sqs.send_message(QueueUrl="https://sqs.us-east-1.amazonaws.com/123456789012/demo
     .venv/bin/python -m pytest tests/test_sqs.py
 
 Each test boots a private server per test against an isolated queue set
-(``QUEUES`` is replaced via ``monkeypatch``); runs never share state.
+(``QUEUES`` is replaced via ``monkeypatch``); runs never share state.  The
+suite covers the visibility-timeout lifecycle (receive, redelivery,
+visibility change, delete) and redrive to a dead-letter queue.

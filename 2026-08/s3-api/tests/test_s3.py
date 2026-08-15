@@ -12,7 +12,6 @@ Run from the project root::
 
 import hashlib
 import socket
-import sys
 import threading
 import time
 import urllib.request
