@@ -407,6 +407,52 @@ def test_delete_objects_missing_bucket(s3):
     assert err.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
 
 
+# --- conditional requests (If-Match / If-None-Match) ---
+
+
+def test_get_object_if_match(s3):
+    etag = s3.head_object(Bucket="data", Key="hello.txt")["ETag"]
+    # a matching ETag lets the request through
+    resp = s3.get_object(Bucket="data", Key="hello.txt", IfMatch=etag)
+    assert resp["Body"].read() == b"hello from fs-s3\n"
+
+    # '*' matches any existing object
+    resp = s3.get_object(Bucket="data", Key="hello.txt", IfMatch="*")
+    assert resp["Body"].read() == b"hello from fs-s3\n"
+
+    # a mismatching ETag fails with 412 PreconditionFailed
+    with pytest.raises(ClientError) as err:
+        s3.get_object(Bucket="data", Key="hello.txt", IfMatch='"deadbeef"')
+    assert err.value.response["Error"]["Code"] == "PreconditionFailed"
+    assert err.value.response["ResponseMetadata"]["HTTPStatusCode"] == 412
+
+
+def test_get_object_if_none_match(s3):
+    etag = s3.head_object(Bucket="data", Key="hello.txt")["ETag"]
+    # a matching ETag short-circuits with 304 Not Modified. boto3 raises a
+    # ClientError for any status >= 300, so the 304 surfaces as a "304" error.
+    with pytest.raises(ClientError) as err:
+        s3.get_object(Bucket="data", Key="hello.txt", IfNoneMatch=etag)
+    assert err.value.response["Error"]["Code"] == "304"
+    assert err.value.response["ResponseMetadata"]["HTTPStatusCode"] == 304
+
+    # a mismatching ETag lets the request through
+    resp = s3.get_object(Bucket="data", Key="hello.txt", IfNoneMatch='"deadbeef"')
+    assert resp["Body"].read() == b"hello from fs-s3\n"
+
+
+def test_head_object_conditional_headers(s3):
+    etag = s3.head_object(Bucket="data", Key="hello.txt")["ETag"]
+    # a matching If-None-Match short-circuits with 304 (raised as a "304" error)
+    with pytest.raises(ClientError) as err:
+        s3.head_object(Bucket="data", Key="hello.txt", IfNoneMatch=etag)
+    assert err.value.response["ResponseMetadata"]["HTTPStatusCode"] == 304
+
+    with pytest.raises(ClientError) as err:
+        s3.head_object(Bucket="data", Key="hello.txt", IfMatch='"deadbeef"')
+    assert err.value.response["ResponseMetadata"]["HTTPStatusCode"] == 412
+
+
 # --- delete bucket ---
 
 

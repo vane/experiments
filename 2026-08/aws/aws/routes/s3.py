@@ -5,7 +5,8 @@ manage, store and retrieve objects.  Buckets are directories under
 ``DATA_DIR``; a bucket's objects are the files beneath it.  Supported
 calls: ListBuckets, CreateBucket, HeadBucket, DeleteBucket, ListObjects
 (v1 and v2, with ``Prefix``/``Delimiter``), HeadObject and GetObject
-(both honouring the ``Range`` header), PutObject, CopyObject, DeleteObjects
+(both honouring the ``Range`` and the ``If-Match``/``If-None-Match``
+conditional headers), PutObject, CopyObject, DeleteObjects
 and DeleteObject.  CopyObject is a ``PutObject`` that carries the
 ``x-amz-copy-source`` header; it copies the source object's bytes to the
 destination, giving the new object a fresh ``LastModified``.  DeleteObjects
@@ -231,6 +232,47 @@ def _range_not_satisfiable(size: int) -> Response:
     return resp
 
 
+def _etag_matches(value: str, etag: str) -> bool:
+    """Whether an object with ``etag`` matches an If-Match/If-None-Match value.
+
+    ``*`` matches any object, and a comma-separated list matches if any entry
+    matches.  Surrounding double quotes on each entry are ignored, so both the
+    quoted form S3 uses (``"abc123"``) and a bare value work.
+    """
+    value = value.strip()
+    if value == "*":
+        return True
+    return any(
+        entry.strip().strip('"') == etag for entry in value.split(",") if entry.strip()
+    )
+
+
+def _precondition_response(request: Request, m: dict) -> Response | None:
+    """Evaluate the If-Match / If-None-Match headers against an object.
+
+    Returns a 412 ``PreconditionFailed`` when ``If-Match`` does not match, a
+    304 ``Not Modified`` when ``If-None-Match`` does, or None when both hold
+    (the request then proceeds as usual).  ``If-Match`` is evaluated first,
+    per HTTP semantics.
+    """
+    if_match = request.headers.get("if-match")
+    if if_match is not None and not _etag_matches(if_match, m["etag"]):
+        return _error(
+            412, "PreconditionFailed",
+            "At least one of the preconditions you specified did not hold",
+        )
+    if_none_match = request.headers.get("if-none-match")
+    if if_none_match is not None and _etag_matches(if_none_match, m["etag"]):
+        return Response(
+            status_code=304,
+            headers={
+                "ETag": f'"{m["etag"]}"',
+                "Last-Modified": format_datetime(m["mtime"]),
+            },
+        )
+    return None
+
+
 def _parse_copy_source(header: str) -> tuple[str, str] | None:
     """Split an ``x-amz-copy-source`` header into ``(bucket, key)``.
 
@@ -309,6 +351,9 @@ async def head_object(request: Request, bucket: str, key: str) -> Response:
     if not p.is_file():
         return _error(404, "NoSuchKey", "The specified key does not exist.")
     m = _meta(p)
+    pre = _precondition_response(request, m)
+    if pre is not None:
+        return pre
     headers = _object_headers(m)
     headers["Accept-Ranges"] = "bytes"
     try:
@@ -332,6 +377,9 @@ async def get_object(request: Request, bucket: str, key: str) -> Response:
     if not p.is_file():
         return _error(404, "NoSuchKey", "The specified key does not exist.")
     m = _meta(p)
+    pre = _precondition_response(request, m)
+    if pre is not None:
+        return pre
     headers = _object_headers(m)
     headers["Accept-Ranges"] = "bytes"
     try:

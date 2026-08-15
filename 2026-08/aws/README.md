@@ -12,7 +12,10 @@ objects: `ListBuckets`, `CreateBucket`, `HeadBucket`, `DeleteBucket`,
 `HeadObject` honour the `Range` header: a satisfiable range returns 206 with a
 `Content-Range` covering the requested span (`bytes=start-end`,
 `bytes=start-`, `bytes=-suffix`); an unsatisfiable or malformed range
-returns 416 `InvalidRange`. `CopyObject` (a `PutObject` carrying the
+returns 416 `InvalidRange`. They also honour the `If-Match` /
+`If-None-Match` conditional headers: a failed `If-Match` returns 412
+`PreconditionFailed`, and a matched `If-None-Match` returns 304 Not
+Modified. `CopyObject` (a `PutObject` carrying the
 `x-amz-copy-source` header, so `s3.copy_object`) copies the source
 object's bytes to the destination and gives the new object a fresh
 `LastModified`; a missing source key returns `NoSuchKey`. `DeleteObjects`
