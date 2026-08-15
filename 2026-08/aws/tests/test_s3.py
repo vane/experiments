@@ -258,6 +258,89 @@ def test_delete_object_and_idempotency(s3):
     assert s3.delete_object(Bucket="data", Key="_put/del.txt")["ResponseMetadata"]["HTTPStatusCode"] == 204
 
 
+# --- copy ---
+
+
+def test_copy_object_roundtrip(s3):
+    body = b"hello from fs-s3\n"
+    resp = s3.copy_object(
+        Bucket="data",
+        CopySource={"Bucket": "data", "Key": "hello.txt"},
+        Key="_copy/hello.txt",
+    )
+    assert resp["CopyObjectResult"]["ETag"] == f'"{hashlib.md5(body).hexdigest()}"'
+    assert s3.get_object(Bucket="data", Key="_copy/hello.txt")["Body"].read() == body
+    # the source object is untouched
+    assert s3.get_object(Bucket="data", Key="hello.txt")["Body"].read() == body
+    assert "_copy/hello.txt" in {
+        c["Key"] for c in s3.list_objects_v2(Bucket="data", Prefix="_copy/")["Contents"]
+    }
+
+
+def test_copy_object_across_buckets(s3):
+    s3.create_bucket(Bucket="_copybkt")
+    s3.copy_object(
+        Bucket="_copybkt",
+        CopySource={"Bucket": "data", "Key": "notes/a.md"},
+        Key="copied/a.md",
+    )
+    assert s3.get_object(Bucket="_copybkt", Key="copied/a.md")["Body"].read() == b"# note a\n\ns3 test\n"
+    assert "copied/a.md" in {
+        c["Key"] for c in s3.list_objects_v2(Bucket="_copybkt")["Contents"]
+    }
+
+
+def test_copy_object_creates_intermediate_dirs(s3):
+    s3.copy_object(
+        Bucket="data",
+        CopySource={"Bucket": "data", "Key": "hello.txt"},
+        Key="_copy/a/b/c.txt",
+    )
+    assert s3.get_object(Bucket="data", Key="_copy/a/b/c.txt")["Body"].read() == b"hello from fs-s3\n"
+
+
+def test_copy_object_self_is_idempotent(s3):
+    resp = s3.copy_object(
+        Bucket="data",
+        CopySource={"Bucket": "data", "Key": "hello.txt"},
+        Key="hello.txt",
+    )
+    assert resp["ResponseMetadata"]["HTTPStatusCode"] == 200
+    assert s3.get_object(Bucket="data", Key="hello.txt")["Body"].read() == b"hello from fs-s3\n"
+
+
+def test_copy_object_special_char_key(s3):
+    s3.put_object(Bucket="data", Key="_copy/sp ace.txt", Body=b"space\n")
+    s3.copy_object(
+        Bucket="data",
+        CopySource={"Bucket": "data", "Key": "_copy/sp ace.txt"},
+        Key="_copy/sp ace 2.txt",
+    )
+    assert s3.get_object(Bucket="data", Key="_copy/sp ace 2.txt")["Body"].read() == b"space\n"
+
+
+def test_copy_object_missing_source_key(s3):
+    with pytest.raises(ClientError) as err:
+        s3.copy_object(
+            Bucket="data",
+            CopySource={"Bucket": "data", "Key": "nope.txt"},
+            Key="_copy/nope.txt",
+        )
+    assert err.value.response["Error"]["Code"] == "NoSuchKey"
+    assert err.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
+
+
+def test_copy_object_missing_source_bucket(s3):
+    with pytest.raises(ClientError) as err:
+        s3.copy_object(
+            Bucket="data",
+            CopySource={"Bucket": "_missing", "Key": "hello.txt"},
+            Key="_copy/hello.txt",
+        )
+    assert err.value.response["Error"]["Code"] == "NoSuchBucket"
+    assert err.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
+
+
 # --- delete bucket ---
 
 

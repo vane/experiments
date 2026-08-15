@@ -5,7 +5,10 @@ manage, store and retrieve objects.  Buckets are directories under
 ``DATA_DIR``; a bucket's objects are the files beneath it.  Supported
 calls: ListBuckets, CreateBucket, HeadBucket, DeleteBucket, ListObjects
 (v1 and v2, with ``Prefix``/``Delimiter``), HeadObject and GetObject
-(both honouring the ``Range`` header), PutObject and DeleteObject.
+(both honouring the ``Range`` header), PutObject, CopyObject and
+DeleteObject.  CopyObject is a ``PutObject`` that carries the
+``x-amz-copy-source`` header; it copies the source object's bytes to the
+destination, giving the new object a fresh ``LastModified``.
 
 Everything is read from, and written to, the filesystem on every
 request - no state, no cache.  Request signatures are accepted but
@@ -22,6 +25,7 @@ import shutil
 from datetime import UTC, datetime
 from email.utils import format_datetime
 from pathlib import Path
+from urllib.parse import unquote
 from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, Request, Response
@@ -224,8 +228,61 @@ def _range_not_satisfiable(size: int) -> Response:
     return resp
 
 
+def _parse_copy_source(header: str) -> tuple[str, str] | None:
+    """Split an ``x-amz-copy-source`` header into ``(bucket, key)``.
+
+    The header is ``{source_bucket}/{source_key}`` (optionally with a leading
+    slash); the key is percent-encoded.  Returns None when the header names no
+    bucket and key.
+    """
+    value = header.strip().removeprefix("/")
+    value = value.split("?", 1)[0]  # a versionId suffix is not supported
+    if "/" not in value:
+        return None
+    bucket, key = value.split("/", 1)
+    bucket, key = unquote(bucket), unquote(key)
+    if not bucket or not key:
+        return None
+    return bucket, key
+
+
+def _copy_object(bucket: str, key: str, source: str) -> Response:
+    """CopyObject: copy the source object's bytes to ``{bucket}/{key}``."""
+    parsed = _parse_copy_source(source)
+    if parsed is None:
+        return _error(400, "InvalidArgument", "The x-amz-copy-source header is malformed.")
+    src_bucket, src_key = parsed
+
+    src = _object_path(src_bucket, src_key)
+    if isinstance(src, Response):
+        return src
+    if not src.is_file():
+        return _error(404, "NoSuchKey", "The specified key does not exist.")
+
+    dest = _object_path(bucket, key)
+    if isinstance(dest, Response):
+        return dest
+    if src != dest:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dest)
+
+    m = _meta(dest)
+    iso = m["mtime"].strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    body = (f"<CopyObjectResult {S3_NS}><ETag>&quot;{m['etag']}&quot;</ETag>"
+            f"<LastModified>{iso}</LastModified></CopyObjectResult>")
+    return Response(
+        body,
+        status_code=200,
+        headers={"ETag": f'"{m["etag"]}"', "Last-Modified": format_datetime(m["mtime"])},
+        media_type="application/xml",
+    )
+
+
 @router.put("/{bucket}/{key:path}")
 async def put_object(request: Request, bucket: str, key: str) -> Response:
+    copy_source = request.headers.get("x-amz-copy-source")
+    if copy_source is not None:
+        return _copy_object(bucket, key, copy_source)
     p = _object_path(bucket, key)
     if isinstance(p, Response):
         return p
