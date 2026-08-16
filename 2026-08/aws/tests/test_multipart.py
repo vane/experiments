@@ -136,6 +136,19 @@ def test_upload_part_reupload_overwrites(s3):
     assert s3.get_object(Bucket="mp", Key="r.bin")["Body"].read() == b"two"
 
 
+def test_multipart_metadata_from_create(s3):
+    # like S3, a multipart upload's user-defined metadata is set on the
+    # create request and lands on the object at completion
+    upload_id = s3.create_multipart_upload(
+        Bucket="mp", Key="m.bin", Metadata={"owner": "ada"})["UploadId"]
+    etag = s3.upload_part(Bucket="mp", Key="m.bin", PartNumber=1,
+                          UploadId=upload_id, Body=b"z")["ETag"]
+    s3.complete_multipart_upload(
+        Bucket="mp", Key="m.bin", UploadId=upload_id,
+        MultipartUpload={"Parts": [{"PartNumber": 1, "ETag": etag}]})
+    assert s3.head_object(Bucket="mp", Key="m.bin")["Metadata"] == {"owner": "ada"}
+
+
 def test_abort_multipart_upload(s3):
     upload_id = s3.create_multipart_upload(Bucket="mp", Key="gone.bin")["UploadId"]
     s3.upload_part(Bucket="mp", Key="gone.bin", PartNumber=1, UploadId=upload_id, Body=b"x")

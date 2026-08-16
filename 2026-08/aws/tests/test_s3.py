@@ -10,7 +10,6 @@ Run from the project root::
     pytest tests/test_s3.py
 """
 
-import csv
 import hashlib
 import socket
 import threading
@@ -19,6 +18,7 @@ import urllib.request
 from pathlib import Path
 
 import boto3
+import pyarrow.parquet as pq
 import pytest
 import uvicorn
 from botocore.config import Config
@@ -348,6 +348,61 @@ def test_copy_object_missing_source_bucket(s3):
     assert err.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
 
 
+# --- user-defined metadata (x-amz-meta-*) ---
+
+
+def test_put_object_with_metadata(s3):
+    s3.put_object(Bucket="data", Key="_meta/who.txt", Body=b"meta\n",
+                  Metadata={"owner": "ada", "Project": "fs-s3"})
+    # keys are stored lower-cased, as in S3
+    expected = {"owner": "ada", "project": "fs-s3"}
+    assert s3.get_object(Bucket="data", Key="_meta/who.txt")["Metadata"] == expected
+    assert s3.head_object(Bucket="data", Key="_meta/who.txt")["Metadata"] == expected
+
+
+def test_put_overwrite_clears_metadata(s3):
+    s3.put_object(Bucket="data", Key="_meta/clear.txt", Body=b"v1\n",
+                  Metadata={"owner": "ada"})
+    s3.put_object(Bucket="data", Key="_meta/clear.txt", Body=b"v2\n")
+    assert s3.head_object(Bucket="data", Key="_meta/clear.txt").get("Metadata", {}) == {}
+
+
+def test_copy_object_metadata_copy_directive(s3):
+    s3.put_object(Bucket="data", Key="_meta/src.txt", Body=b"src\n",
+                  Metadata={"owner": "ada"})
+    # default (COPY): the destination takes the source object's metadata
+    s3.copy_object(Bucket="data", CopySource={"Bucket": "data", "Key": "_meta/src.txt"},
+                   Key="_meta/dst-copy.txt")
+    assert s3.head_object(Bucket="data", Key="_meta/dst-copy.txt")["Metadata"] == {"owner": "ada"}
+    # ...and an explicit COPY ignores the request's own metadata headers
+    s3.copy_object(Bucket="data", CopySource={"Bucket": "data", "Key": "_meta/src.txt"},
+                   Key="_meta/dst-copy2.txt",
+                   MetadataDirective="COPY", Metadata={"owner": "bob"})
+    assert s3.head_object(Bucket="data", Key="_meta/dst-copy2.txt")["Metadata"] == {"owner": "ada"}
+
+
+def test_copy_object_metadata_replace_directive(s3):
+    s3.put_object(Bucket="data", Key="_meta/src2.txt", Body=b"src\n",
+                  Metadata={"owner": "ada"})
+    # REPLACE: the request's metadata wins
+    s3.copy_object(Bucket="data", CopySource={"Bucket": "data", "Key": "_meta/src2.txt"},
+                   Key="_meta/dst-replace.txt",
+                   MetadataDirective="REPLACE", Metadata={"owner": "bob"})
+    assert s3.head_object(Bucket="data", Key="_meta/dst-replace.txt")["Metadata"] == {"owner": "bob"}
+    # REPLACE without metadata clears it
+    s3.copy_object(Bucket="data", CopySource={"Bucket": "data", "Key": "_meta/src2.txt"},
+                   Key="_meta/dst-clear.txt", MetadataDirective="REPLACE")
+    assert s3.head_object(Bucket="data", Key="_meta/dst-clear.txt").get("Metadata", {}) == {}
+
+
+def test_metadata_persisted_in_parquet(s3, tmp_path):
+    s3.put_object(Bucket="data", Key="_meta/parquet.txt", Body=b"x\n",
+                  Metadata={"owner": "ada"})
+    rows = {r["key"]: r for r in pq.read_table(tmp_path / "s3.parquet").to_pylist()
+            if r["kind"] == "object"}
+    assert rows["_meta/parquet.txt"]["metadata"] == '{"owner": "ada"}'
+
+
 # --- delete objects (batch) ---
 
 
@@ -567,10 +622,9 @@ def test_delete_bucket_missing(s3):
 # --- storage layout ---
 
 
-def test_metadata_in_csv_and_contents_in_data_dir(s3, tmp_path):
-    # metadata lives in s3.csv: one row per bucket, one row per object
-    with (tmp_path / "s3.csv").open(newline="") as f:
-        rows = list(csv.DictReader(f))
+def test_metadata_in_parquet_and_contents_in_data_dir(s3, tmp_path):
+    # metadata lives in s3.parquet: one row per bucket, one row per object
+    rows = pq.read_table(tmp_path / "s3.parquet").to_pylist()
     assert {r["bucket"] for r in rows if r["kind"] == "bucket"} == {"data"}
     assert {(r["bucket"], r["key"]) for r in rows if r["kind"] == "object"} == {
         ("data", "hello.txt"),

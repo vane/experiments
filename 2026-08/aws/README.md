@@ -1,11 +1,11 @@
 # fs-s3
 
 S3-compatible boto3 API over a local `data/` store: bucket and object
-metadata live in `data/s3.csv` (one row each), and object contents live
+metadata live in `data/s3.parquet` (one row each), and object contents live
 under `data/data/` (one flat file per object).
 Stateless: every response (listings, hashes, metadata) is computed live
-from the CSV and the files it names per request — no cache, no background
-indexing.
+from the parquet index and the files it names per request — no cache, no
+background indexing.
 
 Implements the S3 subset boto3 needs to manage, store and retrieve
 objects: `ListBuckets`, `CreateBucket`, `HeadBucket`, `DeleteBucket`,
@@ -35,19 +35,28 @@ object's bytes to the destination and gives the new object a fresh
 Multipart uploads (``s3.create_multipart_upload`` / ``upload_part`` /
 ``list_parts`` / ``complete_multipart_upload`` / ``abort_multipart_upload``)
 store in-flight parts under ``data/uploads/<bucket>/<upload-id>/`` - outside
-the CSV, so listings never see them.  Completing an upload assembles the
+the index, so listings never see them.  Completing an upload assembles the
 object like ``PutObject`` (with the S3-style ``md5-of-md5s-N`` ETag) and
 drops the parts; aborting just removes them.  ``boto3``'s managed transfers
 (``upload_file`` / ``upload_fileobj``) switch to this path automatically
 above the 8 MiB threshold.
 
-Buckets and objects are CSV records: `CreateBucket` adds a bucket row,
+User-defined metadata (``x-amz-meta-*`` headers) is persisted per object in
+the parquet index's JSON ``metadata`` column and returned by ``GetObject``,
+``HeadObject`` and ``CopyObject``.  ``CopyObject`` honours the
+``x-amz-metadata-directive`` header: ``COPY`` (the default) keeps the source
+object's metadata, ``REPLACE`` uses the request's own headers - so a
+``REPLACE`` without metadata clears it.  A multipart upload takes its
+metadata from the ``CreateMultipartUpload`` request, like S3.
+
+Buckets and objects are rows in the parquet index: `CreateBucket` adds a
+bucket row,
 `PutObject` writes the object's bytes under `data/data/<bucket>/` (a flat
 percent-encoded file per key, so a key can never escape the store or
 collide with a directory) and adds its metadata row, `DeleteObject`
 removes both, and `DeleteBucket` removes the bucket row and its content
 directory, so buckets are isolated and everything reflects the live
-store. Listings are computed from the CSV, without walking the
+store. Listings are computed from the index, without walking the
 filesystem.
 `DeleteBucket` only succeeds while the bucket holds no objects — it
 returns `BucketNotEmpty` (409) if any remain. Deleting a missing bucket

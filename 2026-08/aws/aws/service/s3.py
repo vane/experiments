@@ -1,17 +1,18 @@
-"""CSV-backed S3 store with boto3-compatible semantics.
+"""Parquet-backed S3 store with boto3-compatible semantics.
 
-All metadata lives in a single CSV file (``s3.csv`` under the store's
-root directory): one row per bucket and one row per object, recording
-last-modified, size, ETag and content type.  Object contents live as
-files under the root's ``data/`` subdirectory - one flat file per
-object, named by the percent-encoded key, so a key can never escape
-the store or collide with a directory.
+All metadata lives in a single parquet file (``s3.parquet`` under the
+store's root directory): one row per bucket and one row per object,
+recording last-modified (a UTC timestamp column), size, ETag, content
+type and the object's user-defined metadata (``x-amz-meta-*``) as a JSON
+object column.  Object contents live as files under the root's ``data/``
+subdirectory - one flat file per object, named by the percent-encoded
+key, so a key can never escape the store or collide with a directory.
 
-The CSV is the index: listings are computed from it (no filesystem
-walking), and every mutation rewrites it atomically (write to a temp
-file, then ``os.replace``).
+The parquet file is the index: listings are computed from it (no
+filesystem walking), and every mutation rewrites it atomically (write
+to a temp file, then ``os.replace``).
 
-In-flight multipart uploads live outside the CSV, under the root's
+In-flight multipart uploads live outside the index, under the root's
 ``uploads/`` subdirectory: one directory per upload holding its part
 files plus a single ``upload.json`` record (also rewritten atomically).
 A part is not an object, so listings never see it; completing an upload
@@ -20,7 +21,6 @@ writes the assembled object into the store like a plain put.
 
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
 import mimetypes
@@ -31,8 +31,22 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 
-# CSV columns, in file order.
-_COLUMNS = ["kind", "bucket", "key", "last_modified", "size", "etag", "content_type"]
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+# The index's schema (column order is the on-disk order).  ``metadata``
+# is a JSON object encoded as a string, mirroring how values like it are
+# best inspected in any parquet tooling.
+_SCHEMA = pa.schema([
+    pa.field("kind", pa.string()),
+    pa.field("bucket", pa.string()),
+    pa.field("key", pa.string()),
+    pa.field("last_modified", pa.timestamp("us", tz="UTC")),
+    pa.field("size", pa.int64()),
+    pa.field("etag", pa.string()),
+    pa.field("content_type", pa.string()),
+    pa.field("metadata", pa.string()),
+])
 
 # Timestamp format; the sub-second part is trimmed to milliseconds.
 _TS = "%Y-%m-%dT%H:%M:%S.%f"
@@ -52,6 +66,24 @@ def _iso(dt: datetime) -> str:
 
 def _parse_ts(value: str) -> datetime:
     return datetime.strptime(value, _TS).replace(tzinfo=UTC)
+
+
+def _utc(dt: datetime) -> datetime:
+    """A timestamp read from the index, normalised to UTC (a naive value,
+    e.g. from an index written by another tool, is taken as UTC)."""
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt
+
+
+def _json_dict(value: str | None) -> dict:
+    """Parse the index's JSON ``metadata`` column (absent, empty or
+    malformed -> empty)."""
+    if not value:
+        return {}
+    try:
+        loaded = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def _guess_type(key: str) -> str:
@@ -77,15 +109,15 @@ def _multipart_etag(part_etags: list[str]) -> str:
 
 
 class S3Store:
-    """Buckets and objects backed by a CSV index and a content directory.
+    """Buckets and objects backed by a parquet index and a content directory.
 
-    ``root`` is the store's data directory: it holds ``s3.csv`` and the
+    ``root`` is the store's data directory: it holds ``s3.parquet`` and the
     ``data/`` content subdirectory (``root/data/<bucket>/<key>``).
     """
 
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
-        self.csv_path = self.root / "s3.csv"
+        self.index_path = self.root / "s3.parquet"
         self.content_dir = self.root / "data"
         self.buckets: dict[str, datetime] = {}
         self.objects: dict[tuple[str, str], dict] = {}
@@ -94,34 +126,45 @@ class S3Store:
     # --- persistence ---
 
     def _load(self) -> None:
-        if not self.csv_path.is_file():
+        if not self.index_path.is_file():
             return
-        with self.csv_path.open(newline="", encoding="utf-8") as f:
-            for row in csv.DictReader(f):
-                if row["kind"] == "bucket":
-                    self.buckets[row["bucket"]] = _parse_ts(row["last_modified"])
-                else:
-                    self.objects[(row["bucket"], row["key"])] = {
-                        "last_modified": _parse_ts(row["last_modified"]),
-                        "size": int(row["size"]),
-                        "etag": row["etag"],
-                        "content_type": row["content_type"],
-                    }
+        rows = pq.read_table(self.index_path).to_pydict()
+        for kind, bucket, key, last_modified, size, etag, content_type, metadata in zip(
+            rows["kind"], rows["bucket"], rows["key"], rows["last_modified"],
+            rows["size"], rows["etag"], rows["content_type"], rows["metadata"],
+        ):
+            if kind == "bucket":
+                self.buckets[bucket] = _utc(last_modified)
+            else:
+                self.objects[(bucket, key)] = {
+                    "last_modified": _utc(last_modified),
+                    "size": size,
+                    "etag": etag,
+                    "content_type": content_type,
+                    "metadata": _json_dict(metadata),
+                }
 
     def _save(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
-        tmp = self.csv_path.with_name(self.csv_path.name + ".tmp")
-        with tmp.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(_COLUMNS)
-            for name, created in sorted(self.buckets.items()):
-                writer.writerow(["bucket", name, "", _iso(created), "", "", ""])
-            for (bucket, key), meta in sorted(self.objects.items()):
-                writer.writerow([
-                    "object", bucket, key, _iso(meta["last_modified"]),
-                    str(meta["size"]), meta["etag"], meta["content_type"],
-                ])
-        os.replace(tmp, self.csv_path)
+        buckets = sorted(self.buckets.items())
+        objects = sorted(self.objects.items())
+        table = pa.Table.from_pydict({
+            "kind": ["bucket"] * len(buckets) + ["object"] * len(objects),
+            "bucket": [name for name, _ in buckets]
+                      + [bk for (bk, _), _ in objects],
+            "key": [""] * len(buckets) + [key for (_, key), _ in objects],
+            "last_modified": [created for _, created in buckets]
+                             + [m["last_modified"] for _, m in objects],
+            "size": [0] * len(buckets) + [m["size"] for _, m in objects],
+            "etag": [""] * len(buckets) + [m["etag"] for _, m in objects],
+            "content_type": [""] * len(buckets)
+                            + [m["content_type"] for _, m in objects],
+            "metadata": [""] * len(buckets)
+                        + [json.dumps(m.get("metadata") or {}) for _, m in objects],
+        }, schema=_SCHEMA)
+        tmp = self.index_path.with_name(self.index_path.name + ".tmp")
+        pq.write_table(table, tmp)
+        os.replace(tmp, self.index_path)
 
     # --- buckets ---
 
@@ -171,8 +214,13 @@ class S3Store:
     def object_meta(self, bucket: str, key: str) -> dict | None:
         return self.objects.get((bucket, key))
 
-    def put_object(self, bucket: str, key: str, data: bytes) -> dict:
-        """Write an object's contents and record its metadata row."""
+    def put_object(self, bucket: str, key: str, data: bytes,
+                   metadata: dict | None = None) -> dict:
+        """Write an object's contents and record its metadata row.
+
+        ``metadata`` is the object's user-defined (``x-amz-meta-*``)
+        metadata; None records none.
+        """
         path = self.content_path(bucket, key)
         path.parent.mkdir(parents=True, exist_ok=True)
         _write_atomic(path, data)
@@ -181,19 +229,31 @@ class S3Store:
             "size": len(data),
             "etag": hashlib.md5(data).hexdigest(),
             "content_type": _guess_type(key),
+            "metadata": dict(metadata or {}),
         }
         self.objects[(bucket, key)] = meta
         self._save()
         return meta
 
-    def copy_object(self, src_bucket: str, src_key: str, bucket: str, key: str) -> dict:
-        """Copy one object's contents to another key with a fresh LastModified."""
+    def copy_object(self, src_bucket: str, src_key: str, bucket: str, key: str,
+                    metadata: dict | None = None) -> dict:
+        """Copy one object's contents to another key with a fresh
+        LastModified.
+
+        ``metadata`` None means COPY: the source object's user-defined
+        metadata is kept.  A dict (possibly empty) means REPLACE: the
+        destination gets exactly that metadata.
+        """
         data = self.content_path(src_bucket, src_key).read_bytes()
+        if metadata is None:
+            source = self.object_meta(src_bucket, src_key)
+            metadata = dict((source or {}).get("metadata") or {})
         meta = {
             "last_modified": _now(),
             "size": len(data),
             "etag": hashlib.md5(data).hexdigest(),
             "content_type": _guess_type(key),
+            "metadata": metadata,
         }
         dest = self.content_path(bucket, key)
         if dest != self.content_path(src_bucket, src_key):
@@ -238,7 +298,7 @@ class S3Store:
 
     # --- multipart uploads ---
     #
-    # In-flight uploads live outside the CSV (and the content directory):
+    # In-flight uploads live outside the index (and the content directory):
     # one directory per upload under the root's ``uploads/`` subdirectory,
     # holding the part files plus a single ``upload.json`` record that is
     # rewritten atomically on every part, so a crash never leaves a torn
@@ -276,12 +336,19 @@ class S3Store:
             return None
         return meta
 
-    def create_multipart_upload(self, bucket: str, key: str) -> tuple[str, datetime]:
-        """Start a multipart upload; return ``(upload_id, created)``."""
+    def create_multipart_upload(self, bucket: str, key: str,
+                                metadata: dict | None = None) -> tuple[str, datetime]:
+        """Start a multipart upload; return ``(upload_id, created)``.
+
+        ``metadata`` is the user-defined metadata the final object gets when
+        the upload completes (S3 takes it from the create request; there is
+        no metadata parameter on the complete call).
+        """
         created = _now()
         upload_id = uuid.uuid4().hex
         self._save_upload(
-            bucket, upload_id, {"key": key, "created": _iso(created), "parts": {}}
+            bucket, upload_id, {"key": key, "created": _iso(created),
+                                "metadata": dict(metadata or {}), "parts": {}}
         )
         return upload_id, created
 
@@ -336,6 +403,7 @@ class S3Store:
             "size": len(data),
             "etag": _multipart_etag([stored[str(n)]["etag"] for n in part_numbers]),
             "content_type": _guess_type(key),
+            "metadata": meta.get("metadata") or {},
         }
         path = self.content_path(bucket, key)
         path.parent.mkdir(parents=True, exist_ok=True)

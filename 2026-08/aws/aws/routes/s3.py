@@ -1,12 +1,13 @@
-"""S3-compatible REST routes backed by a CSV metadata store.
+"""S3-compatible REST routes backed by a parquet metadata store.
 
 Implements just enough of the S3 REST protocol for a boto3 client to
 manage, store and retrieve objects.  Metadata (one row per bucket and
-per object: last-modified, size, ETag, content type) lives in the CSV
-file ``s3.csv`` under the data directory, and object contents live as
-flat files under its ``data/`` subdirectory (see ``aws/service/s3.py``).
-Listings are computed from the CSV, so no filesystem walking is
-involved and a key can never escape the store.  Supported calls:
+per object: last-modified, size, ETag, content type, user-defined
+metadata) lives in the parquet file ``s3.parquet`` under the data
+directory, and object contents live as flat files under its ``data/``
+subdirectory (see ``aws/service/s3.py``).  Listings are computed from the
+index, so no filesystem walking is involved and a key can never escape
+the store.  Supported calls:
 ListBuckets, CreateBucket, HeadBucket, DeleteBucket, ListObjects
 (v1 and v2, with ``Prefix``/``Delimiter``), HeadObject and GetObject
 (both honouring the ``Range`` and the ``If-Match``/``If-None-Match``
@@ -26,10 +27,18 @@ same routes: a request is a multipart call when it carries the ``uploadId``
 the GET and ``AbortMultipartUpload`` the DELETE that would otherwise be the
 single-part call, and ``CreateMultipartUpload``/``CompleteMultipartUpload``
 are POSTs.  In-flight parts live under the store root's ``uploads/``
-directory (see ``aws/service/s3.py``), outside the CSV, so listings never
-see them.
+directory (see ``aws/service/s3.py``), outside the index, so listings
+never see them.
 
-Every request reads the CSV and the content files it names - no cache,
+User-defined metadata (``x-amz-meta-*`` headers) is persisted per object
+(the index's JSON ``metadata`` column) and returned by ``GetObject``,
+``HeadObject`` and ``CopyObject``.  ``CopyObject`` honours the
+``x-amz-metadata-directive`` header (``COPY`` keeps the source object's
+metadata, ``REPLACE`` uses the request's own headers - an empty set clears
+it).  A multipart upload takes its metadata from the
+``CreateMultipartUpload`` request, like S3.
+
+Every request reads the index and the content files it names - no cache,
 no background indexing.  Request signatures are accepted but not
 verified.
 """
@@ -52,7 +61,7 @@ S3_NS = 'xmlns="http://s3.amazonaws.com/doc/2006-03-01/"'
 
 router = APIRouter()
 
-# The CSV-backed store; tests swap this out for an isolated temporary store.
+# The parquet-backed store; tests swap this out for an isolated temporary store.
 store = S3Store(DATA_DIR)
 
 
@@ -141,11 +150,28 @@ async def delete_bucket(bucket: str) -> Response:
 
 
 def _object_headers(m: dict) -> dict:
-    return {
+    """The response headers describing an object: etag, type, size, date
+    and the object's user-defined ``x-amz-meta-*`` metadata."""
+    headers = {
         "ETag": f'"{m["etag"]}"',
         "Content-Type": m["content_type"],
         "Last-Modified": format_datetime(m["last_modified"]),
         "Content-Length": str(m["size"]),
+    }
+    for name, value in (m.get("metadata") or {}).items():
+        headers[f"x-amz-meta-{name}"] = value
+    return headers
+
+
+def _meta_headers(request: Request) -> dict:
+    """The request's user-defined metadata: the ``x-amz-meta-*`` headers with
+    the prefix stripped.  Header names arrive lower-cased, so keys are
+    stored exactly as S3 stores them."""
+    prefix = "x-amz-meta-"
+    return {
+        name.removeprefix(prefix): value
+        for name, value in request.headers.items()
+        if name.startswith(prefix)
     }
 
 
@@ -270,8 +296,13 @@ def _parse_copy_source(header: str) -> tuple[str, str] | None:
     return bucket, key
 
 
-def _copy_object(bucket: str, key: str, source: str) -> Response:
-    """CopyObject: copy the source object's bytes to ``{bucket}/{key}``."""
+def _copy_object(bucket: str, key: str, source: str,
+                 metadata: dict | None = None) -> Response:
+    """CopyObject: copy the source object's bytes to ``{bucket}/{key}``.
+
+    ``metadata`` None means the COPY directive (keep the source object's
+    user-defined metadata); a dict (possibly empty) means REPLACE.
+    """
     parsed = _parse_copy_source(source)
     if parsed is None:
         return _error(400, "InvalidArgument", "The x-amz-copy-source header is malformed.")
@@ -282,13 +313,19 @@ def _copy_object(bucket: str, key: str, source: str) -> Response:
         return _error(404, "NoSuchKey", "The specified key does not exist.")
     if not store.bucket_exists(bucket):
         return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
-    m = store.copy_object(src_bucket, src_key, bucket, key)
+    m = store.copy_object(src_bucket, src_key, bucket, key, metadata)
     body = (f"<CopyObjectResult {S3_NS}><ETag>&quot;{m['etag']}&quot;</ETag>"
             f"<LastModified>{_iso_z(m['last_modified'])}</LastModified></CopyObjectResult>")
+    headers = {
+        "ETag": f'"{m["etag"]}"',
+        "Last-Modified": format_datetime(m["last_modified"]),
+    }
+    for name, value in (m.get("metadata") or {}).items():
+        headers[f"x-amz-meta-{name}"] = value
     return Response(
         body,
         status_code=200,
-        headers={"ETag": f'"{m["etag"]}"', "Last-Modified": format_datetime(m["last_modified"])},
+        headers=headers,
         media_type="application/xml",
     )
 
@@ -297,7 +334,11 @@ def _copy_object(bucket: str, key: str, source: str) -> Response:
 async def put_object(request: Request, bucket: str, key: str) -> Response:
     copy_source = request.headers.get("x-amz-copy-source")
     if copy_source is not None:
-        return _copy_object(bucket, key, copy_source)
+        directive = (request.headers.get("x-amz-metadata-directive") or "").upper()
+        return _copy_object(
+            bucket, key, copy_source,
+            _meta_headers(request) if directive == "REPLACE" else None,
+        )
     upload_id = request.query_params.get("uploadId")
     if upload_id:
         return await _upload_part(request, bucket, key, upload_id)
@@ -310,7 +351,7 @@ async def put_object(request: Request, bucket: str, key: str) -> Response:
     pre = _put_precondition_response(request, existing["etag"] if existing is not None else None)
     if pre is not None:
         return pre
-    m = store.put_object(bucket, key, data)
+    m = store.put_object(bucket, key, data, _meta_headers(request))
     return Response(
         f'<PutObjectResult {S3_NS}><ETag>&quot;{m["etag"]}&quot;</ETag></PutObjectResult>',
         status_code=200,
@@ -563,7 +604,8 @@ async def multipart(request: Request, bucket: str, key: str) -> Response:
     if "uploads" in request.query_params:
         if not store.bucket_exists(bucket):
             return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
-        upload_id, _created = store.create_multipart_upload(bucket, key)
+        upload_id, _created = store.create_multipart_upload(bucket, key,
+                                                            _meta_headers(request))
         return Response(_initiate_xml(bucket, key, upload_id), media_type="application/xml")
 
     upload_id = request.query_params.get("uploadId", "")
