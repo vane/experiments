@@ -10,15 +10,23 @@ the store or collide with a directory.
 The CSV is the index: listings are computed from it (no filesystem
 walking), and every mutation rewrites it atomically (write to a temp
 file, then ``os.replace``).
+
+In-flight multipart uploads live outside the CSV, under the root's
+``uploads/`` subdirectory: one directory per upload holding its part
+files plus a single ``upload.json`` record (also rewritten atomically).
+A part is not an object, so listings never see it; completing an upload
+writes the assembled object into the store like a plain put.
 """
 
 from __future__ import annotations
 
 import csv
 import hashlib
+import json
 import mimetypes
 import os
 import shutil
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -28,6 +36,9 @@ _COLUMNS = ["kind", "bucket", "key", "last_modified", "size", "etag", "content_t
 
 # Timestamp format; the sub-second part is trimmed to milliseconds.
 _TS = "%Y-%m-%dT%H:%M:%S.%f"
+
+# S3 caps a multipart upload at 10000 parts, numbered 1..10000.
+MAX_PART_NUMBER = 10000
 
 
 def _now() -> datetime:
@@ -54,6 +65,15 @@ def _write_atomic(path: Path, data: bytes) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_bytes(data)
     os.replace(tmp, path)
+
+
+def _multipart_etag(part_etags: list[str]) -> str:
+    """The ETag S3 reports for a multipart object: the hex MD5 of the
+    parts' binary MD5 digests, suffixed with ``-<part count>``."""
+    digest = hashlib.md5()
+    for etag in part_etags:
+        digest.update(bytes.fromhex(etag))
+    return f"{digest.hexdigest()}-{len(part_etags)}"
 
 
 class S3Store:
@@ -130,9 +150,11 @@ class S3Store:
         return sorted(self.buckets.items())
 
     def delete_bucket(self, name: str) -> None:
-        """Delete an existing bucket and its content directory."""
+        """Delete an existing bucket, its content directory and any
+        in-flight uploads."""
         del self.buckets[name]
         shutil.rmtree(self.content_dir / name, ignore_errors=True)
+        shutil.rmtree(self.root / "uploads" / name, ignore_errors=True)
         self._save()
 
     def object_count(self, bucket: str) -> int:
@@ -213,3 +235,119 @@ class S3Store:
             else:
                 objects.append((key, meta))
         return sorted(objects), sorted(prefixes)
+
+    # --- multipart uploads ---
+    #
+    # In-flight uploads live outside the CSV (and the content directory):
+    # one directory per upload under the root's ``uploads/`` subdirectory,
+    # holding the part files plus a single ``upload.json`` record that is
+    # rewritten atomically on every part, so a crash never leaves a torn
+    # upload behind.  Completing an upload writes the assembled object
+    # into the store like a plain put and drops the directory.
+
+    def upload_dir(self, bucket: str, upload_id: str) -> Path:
+        """The directory holding an in-flight upload's parts and record."""
+        return self.root / "uploads" / bucket / upload_id
+
+    def _upload_path(self, bucket: str, upload_id: str) -> Path:
+        return self.upload_dir(bucket, upload_id) / "upload.json"
+
+    def _load_upload(self, bucket: str, upload_id: str) -> dict | None:
+        path = self._upload_path(bucket, upload_id)
+        if not path.is_file():
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    def _save_upload(self, bucket: str, upload_id: str, meta: dict) -> None:
+        directory = self.upload_dir(bucket, upload_id)
+        directory.mkdir(parents=True, exist_ok=True)
+        _write_atomic(
+            self._upload_path(bucket, upload_id), json.dumps(meta).encode("utf-8")
+        )
+
+    def _upload_for(self, bucket: str, key: str, upload_id: str) -> dict | None:
+        """The upload's record, or None when it is unknown or was started for
+        another key (S3 addresses every part by the upload's own key)."""
+        meta = self._load_upload(bucket, upload_id)
+        if meta is None or meta.get("key") != key:
+            return None
+        return meta
+
+    def create_multipart_upload(self, bucket: str, key: str) -> tuple[str, datetime]:
+        """Start a multipart upload; return ``(upload_id, created)``."""
+        created = _now()
+        upload_id = uuid.uuid4().hex
+        self._save_upload(
+            bucket, upload_id, {"key": key, "created": _iso(created), "parts": {}}
+        )
+        return upload_id, created
+
+    def upload_part(
+        self, bucket: str, key: str, upload_id: str, part_number: int, data: bytes
+    ) -> dict | None:
+        """Store one part (overwriting an earlier upload of the same
+        number); None when the upload is unknown."""
+        meta = self._upload_for(bucket, key, upload_id)
+        if meta is None:
+            return None
+        last_modified = _now()
+        part = {"size": len(data), "etag": hashlib.md5(data).hexdigest()}
+        _write_atomic(self.upload_dir(bucket, upload_id) / f"part-{part_number}", data)
+        meta["parts"][str(part_number)] = {**part, "last_modified": _iso(last_modified)}
+        self._save_upload(bucket, upload_id, meta)
+        return {**part, "last_modified": last_modified}
+
+    def list_parts(
+        self, bucket: str, key: str, upload_id: str
+    ) -> tuple[datetime, list[tuple[int, dict]]] | None:
+        """The upload's ``(created, parts)`` in ascending part number, or
+        None when the upload is unknown."""
+        meta = self._upload_for(bucket, key, upload_id)
+        if meta is None:
+            return None
+        parts = sorted(
+            (
+                int(n),
+                {**m, "last_modified": _parse_ts(m["last_modified"])},
+            )
+            for n, m in meta["parts"].items()
+        )
+        return _parse_ts(meta["created"]), parts
+
+    def complete_multipart_upload(
+        self, bucket: str, key: str, upload_id: str, part_numbers: list[int]
+    ) -> dict | None:
+        """Assemble the object from ``part_numbers`` (already validated as
+        ascending and present by the caller), drop the upload, and return
+        the object's metadata; None when the upload vanished in between."""
+        meta = self._upload_for(bucket, key, upload_id)
+        if meta is None:
+            return None
+        stored = meta["parts"]
+        data = b"".join(
+            (self.upload_dir(bucket, upload_id) / f"part-{n}").read_bytes()
+            for n in part_numbers
+        )
+        object_meta = {
+            "last_modified": _now(),
+            "size": len(data),
+            "etag": _multipart_etag([stored[str(n)]["etag"] for n in part_numbers]),
+            "content_type": _guess_type(key),
+        }
+        path = self.content_path(bucket, key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write_atomic(path, data)
+        self.objects[(bucket, key)] = object_meta
+        self._save()
+        shutil.rmtree(self.upload_dir(bucket, upload_id), ignore_errors=True)
+        return object_meta
+
+    def abort_multipart_upload(self, bucket: str, key: str, upload_id: str) -> bool:
+        """Remove an in-flight upload; False when it is unknown."""
+        if self._upload_for(bucket, key, upload_id) is None:
+            return False
+        shutil.rmtree(self.upload_dir(bucket, upload_id), ignore_errors=True)
+        return True

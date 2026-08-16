@@ -10,6 +10,7 @@ Run from the project root::
     pytest tests/test_s3.py
 """
 
+import csv
 import hashlib
 import socket
 import threading
@@ -25,6 +26,7 @@ from botocore.exceptions import ClientError
 
 import aws.api.s3_api as s3_api
 import aws.routes.s3 as s3_routes
+from aws.service.s3 import S3Store
 
 
 def _free_port() -> int:
@@ -48,15 +50,14 @@ def _wait_ready(port: int, timeout: float = 10.0) -> None:
 
 @pytest.fixture
 def s3(tmp_path, monkeypatch):
-    # Mock the on-disk store to the test's private directory and seed the
-    # same bucket layout the API exposes (bucket "data" -> ./data/*).
-    monkeypatch.setattr(s3_routes, "DATA_DIR", tmp_path)
-    bucket = tmp_path / "data"
-    notes = bucket / "notes"
-    notes.mkdir(parents=True)
-    (bucket / "hello.txt").write_bytes(b"hello from fs-s3\n")
-    (notes / "a.md").write_bytes(b"# note a\n\ns3 test\n")
-    (notes / "b.txt").write_bytes(b"b\n")
+    # Point the store at the test's private directory and seed the same
+    # bucket layout the API exposes (bucket "data": hello.txt, notes/*).
+    backing = S3Store(tmp_path)
+    backing.create_bucket("data")
+    backing.put_object("data", "hello.txt", b"hello from fs-s3\n")
+    backing.put_object("data", "notes/a.md", b"# note a\n\ns3 test\n")
+    backing.put_object("data", "notes/b.txt", b"b\n")
+    monkeypatch.setattr(s3_routes, "store", backing)
 
     port = _free_port()
     config = uvicorn.Config(
@@ -147,10 +148,16 @@ def test_missing_key_no_such_key(s3):
     assert err.value.response["Error"]["Code"] == "NoSuchKey"
 
 
-def test_key_traversal_is_contained(s3):
+def test_key_traversal_is_contained(s3, tmp_path):
     with pytest.raises(ClientError) as err:
         s3.get_object(Bucket="data", Key="../s3_api.py")
     assert err.value.response["Error"]["Code"] == "NoSuchKey"
+
+    # traversal-y keys round-trip as ordinary objects, stored as flat
+    # percent-encoded content files that can never reach outside the store
+    s3.put_object(Bucket="data", Key="../s3_api.py", Body=b"contained\n")
+    assert s3.get_object(Bucket="data", Key="../s3_api.py")["Body"].read() == b"contained\n"
+    assert (tmp_path / "data" / "data" / "..%2Fs3_api.py").is_file()
 
 
 # --- range requests ---
@@ -222,7 +229,7 @@ def test_put_object_roundtrip(s3):
     assert "_put/new.txt" in {c["Key"] for c in s3.list_objects_v2(Bucket="data", Prefix="_put/")["Contents"]}
 
 
-def test_put_creates_intermediate_dirs(s3):
+def test_put_nested_key(s3):
     s3.put_object(Bucket="data", Key="_put/a/b/c.txt", Body=b"nested\n")
     assert s3.get_object(Bucket="data", Key="_put/a/b/c.txt")["Body"].read() == b"nested\n"
 
@@ -290,7 +297,7 @@ def test_copy_object_across_buckets(s3):
     }
 
 
-def test_copy_object_creates_intermediate_dirs(s3):
+def test_copy_object_nested_key(s3):
     s3.copy_object(
         Bucket="data",
         CopySource={"Bucket": "data", "Key": "hello.txt"},
@@ -386,15 +393,22 @@ def test_delete_objects_quiet(s3):
         s3.get_object(Bucket="data", Key="_del/quiet.txt")
 
 
-def test_delete_objects_escaping_key_is_error(s3):
+def test_delete_objects_escaping_key_is_contained(s3):
+    # a traversal-y key is an ordinary object in the CSV-backed store (the
+    # content path is a flat encoded name), so a batch delete reports it
+    # like any other key and nothing can escape the store
+    s3.put_object(Bucket="data", Key="../escape.txt", Body=b"stays in\n")
     resp = s3.delete_objects(
         Bucket="data",
         Delete={
             "Objects": [{"Key": "_del/ok.txt"}, {"Key": "../escape.txt"}]
         },
     )
-    assert {d["Key"] for d in resp["Deleted"]} == {"_del/ok.txt"}
-    assert {e["Key"]: e["Code"] for e in resp["Errors"]} == {"../escape.txt": "NoSuchKey"}
+    assert {d["Key"] for d in resp["Deleted"]} == {"_del/ok.txt", "../escape.txt"}
+    assert resp.get("Errors", []) == []
+    with pytest.raises(ClientError) as err:
+        s3.get_object(Bucket="data", Key="../escape.txt")
+    assert err.value.response["Error"]["Code"] == "NoSuchKey"
 
 
 def test_delete_objects_missing_bucket(s3):
@@ -539,7 +553,7 @@ def test_delete_bucket_not_empty(s3):
         s3.delete_bucket(Bucket="_full")
     assert err.value.response["Error"]["Code"] == "BucketNotEmpty"
 
-    # removing the object leaves only an empty directory -> bucket is now deletable
+    # removing the object empties the bucket -> it is now deletable
     s3.delete_object(Bucket="_full", Key="x/y.txt")
     assert s3.delete_bucket(Bucket="_full")["ResponseMetadata"]["HTTPStatusCode"] == 204
 
@@ -548,3 +562,23 @@ def test_delete_bucket_missing(s3):
     with pytest.raises(ClientError) as err:
         s3.delete_bucket(Bucket="_missing")
     assert err.value.response["Error"]["Code"] == "NoSuchBucket"
+
+
+# --- storage layout ---
+
+
+def test_metadata_in_csv_and_contents_in_data_dir(s3, tmp_path):
+    # metadata lives in s3.csv: one row per bucket, one row per object
+    with (tmp_path / "s3.csv").open(newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert {r["bucket"] for r in rows if r["kind"] == "bucket"} == {"data"}
+    assert {(r["bucket"], r["key"]) for r in rows if r["kind"] == "object"} == {
+        ("data", "hello.txt"),
+        ("data", "notes/a.md"),
+        ("data", "notes/b.txt"),
+    }
+    # ...and contents live under the data/ subdirectory, one flat file per object
+    content = tmp_path / "data" / "data"
+    assert (content / "hello.txt").is_file()
+    assert (content / "notes%2Fa.md").is_file()
+    assert (content / "notes%2Fb.txt").is_file()

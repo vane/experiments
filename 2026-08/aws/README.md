@@ -10,8 +10,10 @@ indexing.
 Implements the S3 subset boto3 needs to manage, store and retrieve
 objects: `ListBuckets`, `CreateBucket`, `HeadBucket`, `DeleteBucket`,
 `ListObjects` (v1 & v2, with `Prefix` / `Delimiter`), `HeadObject`,
-`GetObject`, `PutObject`, `CopyObject`, `DeleteObjects` (batch, `?delete=`) and
-`DeleteObject`. `GetObject` and
+`GetObject`, `PutObject`, `CopyObject`, `DeleteObjects` (batch, `?delete=`),
+`DeleteObject` and the multipart upload operations (`CreateMultipartUpload`,
+`UploadPart`, `ListParts`, `CompleteMultipartUpload`, `AbortMultipartUpload`).
+`GetObject` and
 `HeadObject` honour the `Range` header: a satisfiable range returns 206 with a
 `Content-Range` covering the requested span (`bytes=start-end`,
 `bytes=start-`, `bytes=-suffix`); an unsatisfiable or malformed range
@@ -29,6 +31,15 @@ object's bytes to the destination and gives the new object a fresh
 `Deleted` in the `DeleteResult` (deleting a missing key is a no-op, like
 `DeleteObject`).
 `Quiet` suppresses the result list. Signatures are accepted but not verified.
+
+Multipart uploads (``s3.create_multipart_upload`` / ``upload_part`` /
+``list_parts`` / ``complete_multipart_upload`` / ``abort_multipart_upload``)
+store in-flight parts under ``data/uploads/<bucket>/<upload-id>/`` - outside
+the CSV, so listings never see them.  Completing an upload assembles the
+object like ``PutObject`` (with the S3-style ``md5-of-md5s-N`` ETag) and
+drops the parts; aborting just removes them.  ``boto3``'s managed transfers
+(``upload_file`` / ``upload_fileobj``) switch to this path automatically
+above the 8 MiB threshold.
 
 Buckets and objects are CSV records: `CreateBucket` adds a bucket row,
 `PutObject` writes the object's bytes under `data/data/<bucket>/` (a flat
@@ -73,7 +84,7 @@ data = s3.get_object(Bucket="demo", Key="hello.txt")["Body"].read()
 
 ## Test
 
-    .venv/bin/python -m pytest tests/test_s3.py
+    .venv/bin/python -m pytest tests/test_s3.py tests/test_multipart.py
 
 The suite boots a private server per test against an isolated temporary
 store (the store instance is swapped via ``monkeypatch``); it never

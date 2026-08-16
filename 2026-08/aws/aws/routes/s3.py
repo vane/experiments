@@ -10,15 +10,24 @@ involved and a key can never escape the store.  Supported calls:
 ListBuckets, CreateBucket, HeadBucket, DeleteBucket, ListObjects
 (v1 and v2, with ``Prefix``/``Delimiter``), HeadObject and GetObject
 (both honouring the ``Range`` and the ``If-Match``/``If-None-Match``
-conditional headers), PutObject, CopyObject, DeleteObjects
-and DeleteObject.  CopyObject is a ``PutObject`` that carries the
+conditional headers), PutObject, CopyObject, DeleteObjects, DeleteObject
+and the multipart upload operations (``CreateMultipartUpload``,
+``UploadPart``, ``ListParts``, ``CompleteMultipartUpload``,
+``AbortMultipartUpload``). CopyObject is a ``PutObject`` that carries the
 ``x-amz-copy-source`` header; it copies the source object's bytes to the
 destination, giving the new object a fresh ``LastModified``.  DeleteObjects
 is the ``?delete=`` batch endpoint: it removes several keys in one request,
 reporting each as ``Deleted``.  On a ``PutObject`` the
 ``If-Match``/``If-None-Match`` headers guard the write instead: any failed
 precondition aborts it with 412 ``PreconditionFailed`` (``If-None-Match: *``
-is the usual create-only-if-absent guard).
+is the usual create-only-if-absent guard).  Multipart uploads ride on the
+same routes: a request is a multipart call when it carries the ``uploadId``
+(or ``uploads``) query parameter - ``UploadPart`` is the PUT, ``ListParts``
+the GET and ``AbortMultipartUpload`` the DELETE that would otherwise be the
+single-part call, and ``CreateMultipartUpload``/``CompleteMultipartUpload``
+are POSTs.  In-flight parts live under the store root's ``uploads/``
+directory (see ``aws/service/s3.py``), outside the CSV, so listings never
+see them.
 
 Every request reads the CSV and the content files it names - no cache,
 no background indexing.  Request signatures are accepted but not
@@ -37,7 +46,7 @@ from xml.sax.saxutils import escape
 from fastapi import APIRouter, Request, Response
 
 from aws.settings import DATA_DIR
-from aws.service.s3 import S3Store
+from aws.service.s3 import MAX_PART_NUMBER, S3Store
 
 S3_NS = 'xmlns="http://s3.amazonaws.com/doc/2006-03-01/"'
 
@@ -289,6 +298,9 @@ async def put_object(request: Request, bucket: str, key: str) -> Response:
     copy_source = request.headers.get("x-amz-copy-source")
     if copy_source is not None:
         return _copy_object(bucket, key, copy_source)
+    upload_id = request.query_params.get("uploadId")
+    if upload_id:
+        return await _upload_part(request, bucket, key, upload_id)
     # read the body up front: an unread body would desync a keep-alive
     # connection if an error is returned before the write
     data = await request.body()
@@ -334,6 +346,9 @@ async def head_object(request: Request, bucket: str, key: str) -> Response:
 
 @router.get("/{bucket}/{key:path}")
 async def get_object(request: Request, bucket: str, key: str) -> Response:
+    upload_id = request.query_params.get("uploadId")
+    if upload_id:
+        return _list_parts(bucket, key, upload_id)
     if not store.bucket_exists(bucket):
         return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
     m = store.object_meta(bucket, key)
@@ -414,8 +429,168 @@ async def delete_objects(request: Request, bucket: str) -> Response:
 
 
 @router.delete("/{bucket}/{key:path}")
-async def delete_object(bucket: str, key: str) -> Response:
+async def delete_object(request: Request, bucket: str, key: str) -> Response:
+    upload_id = request.query_params.get("uploadId")
+    if upload_id:
+        return _abort_upload(bucket, key, upload_id)
     if not store.bucket_exists(bucket):
         return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
     store.delete_object(bucket, key)
     return Response(status_code=204)
+
+
+# --- multipart uploads ---
+# These ride on the object routes: a request is a multipart call when it
+# carries the ``uploadId`` (or ``uploads``) query parameter, which is all
+# botocore's rest-xml protocol uses to tell them apart.
+
+
+def _initiate_xml(bucket: str, key: str, upload_id: str) -> str:
+    return (f"<InitiateMultipartUploadResult {S3_NS}><Bucket>{escape(bucket)}</Bucket>"
+            f"<Key>{escape(key)}</Key><UploadId>{escape(upload_id)}</UploadId>"
+            f"</InitiateMultipartUploadResult>")
+
+
+def _complete_xml(bucket: str, key: str, m: dict) -> str:
+    return (f"<CompleteMultipartUploadResult {S3_NS}>"
+            f"<Location>/{escape(bucket)}/{escape(key)}</Location>"
+            f"<Bucket>{escape(bucket)}</Bucket><Key>{escape(key)}</Key>"
+            f"<ETag>&quot;{m['etag']}&quot;</ETag>"
+            f"<LastModified>{_iso_z(m['last_modified'])}</LastModified>"
+            f"</CompleteMultipartUploadResult>")
+
+
+def _list_parts_xml(bucket: str, key: str, upload_id: str, created: datetime,
+                    parts: list[tuple[int, dict]]) -> str:
+    # like _list_v2_xml, list items are direct children under their
+    # locationName (``Part``) - botocore's rest-xml parser expects no wrapper
+    part_xml = "".join(
+        f"<Part><PartNumber>{n}</PartNumber>"
+        f"<LastModified>{_iso_z(m['last_modified'])}</LastModified>"
+        f"<ETag>&quot;{m['etag']}&quot;</ETag><Size>{m['size']}</Size>"
+        f"<StorageClass>STANDARD</StorageClass></Part>"
+        for n, m in parts
+    )
+    return (f"<ListPartsResult {S3_NS}><Bucket>{escape(bucket)}</Bucket>"
+            f"<Key>{escape(key)}</Key><UploadId>{escape(upload_id)}</UploadId>"
+            f"<MaxParts>1000</MaxParts><IsTruncated>false</IsTruncated>"
+            f"<Initiated>{_iso_z(created)}</Initiated>{part_xml}"
+            f"</ListPartsResult>")
+
+
+def _parse_complete_body(body: bytes) -> list[tuple[int, str]] | None:
+    """Parse a ``CompleteMultipartUpload`` body into ``[(part_number, etag)]``.
+
+    The body is ``<CompleteMultipartUpload><Part><PartNumber>…</PartNumber>
+    <ETag>…</ETag></Part>…</CompleteMultipartUpload>`` (namespaced).
+    Returns None when the body is not well-formed XML or a part names no
+    number and ETag.
+    """
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError:
+        return None
+    parts: list[tuple[int, str]] = []
+    for el in root.iter():
+        if _local(el.tag) != "Part":
+            continue
+        number, etag = "", ""
+        for child in el:
+            name = _local(child.tag)
+            if name == "PartNumber":
+                number = (child.text or "").strip()
+            elif name == "ETag":
+                etag = (child.text or "").strip().strip('"')
+        if not number or not etag:
+            return None
+        try:
+            parts.append((int(number), etag))
+        except ValueError:
+            return None
+    return parts
+
+
+async def _upload_part(request: Request, bucket: str, key: str,
+                       upload_id: str) -> Response:
+    """UploadPart: store one part of an in-flight upload (``?uploadId=``)."""
+    # read the body up front, like put_object: an unread body would desync
+    # a keep-alive connection if an error is returned before the write
+    data = await request.body()
+    if not store.bucket_exists(bucket):
+        return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
+    try:
+        number = int(request.query_params.get("partNumber", ""))
+    except ValueError:
+        return _error(400, "InvalidArgument", "The partNumber query parameter must be an integer.")
+    if not 1 <= number <= MAX_PART_NUMBER:
+        return _error(400, "InvalidArgument", "The partNumber query parameter must be between 1 and 10000.")
+    part = store.upload_part(bucket, key, upload_id, number, data)
+    if part is None:
+        return _error(404, "NoSuchUpload", "The specified upload does not exist.")
+    return Response(
+        status_code=200,
+        headers={
+            "ETag": f'"{part["etag"]}"',
+            "Last-Modified": format_datetime(part["last_modified"]),
+        },
+    )
+
+
+def _list_parts(bucket: str, key: str, upload_id: str) -> Response:
+    """ListParts: the parts of an in-flight upload (``?uploadId=``)."""
+    if not store.bucket_exists(bucket):
+        return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
+    upload = store.list_parts(bucket, key, upload_id)
+    if upload is None:
+        return _error(404, "NoSuchUpload", "The specified upload does not exist.")
+    created, parts = upload
+    return Response(_list_parts_xml(bucket, key, upload_id, created, parts),
+                    media_type="application/xml")
+
+
+def _abort_upload(bucket: str, key: str, upload_id: str) -> Response:
+    """AbortMultipartUpload: drop an in-flight upload (``?uploadId=``)."""
+    if not store.bucket_exists(bucket):
+        return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
+    if not store.abort_multipart_upload(bucket, key, upload_id):
+        return _error(404, "NoSuchUpload", "The specified upload does not exist.")
+    return Response(status_code=204)
+
+
+@router.post("/{bucket}/{key:path}")
+async def multipart(request: Request, bucket: str, key: str) -> Response:
+    """Multipart uploads: ``?uploads`` starts one, ``?uploadId=`` completes it."""
+    if "uploads" in request.query_params:
+        if not store.bucket_exists(bucket):
+            return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
+        upload_id, _created = store.create_multipart_upload(bucket, key)
+        return Response(_initiate_xml(bucket, key, upload_id), media_type="application/xml")
+
+    upload_id = request.query_params.get("uploadId", "")
+    if not upload_id:
+        return _error(400, "InvalidRequest", "A POST on an object key expects ?uploads or ?uploadId=.")
+    # read the body up front, like put_object: an unread body would desync
+    # a keep-alive connection if an error is returned before the write
+    body = await request.body()
+    if not store.bucket_exists(bucket):
+        return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
+
+    parts = _parse_complete_body(body)
+    if not parts:
+        return _error(400, "MalformedXML", "The XML you provided was not well-formed.")
+    numbers = [n for n, _ in parts]
+    if numbers != sorted(numbers) or len(set(numbers)) != len(numbers):
+        return _error(400, "InvalidPartOrder", "The parts were not in ascending order of part number.")
+    uploaded = store.list_parts(bucket, key, upload_id)
+    if uploaded is None:
+        return _error(404, "NoSuchUpload", "The specified upload does not exist.")
+    stored = dict(uploaded[1])
+    for number, etag in parts:
+        part = stored.get(number)
+        if part is None or part["etag"] != etag:
+            return _error(400, "InvalidPart",
+                          "One or more of the specified parts could not be found; the part's ETag may have changed.")
+    meta = store.complete_multipart_upload(bucket, key, upload_id, numbers)
+    if meta is None:  # the upload vanished between the checks above
+        return _error(404, "NoSuchUpload", "The specified upload does not exist.")
+    return Response(_complete_xml(bucket, key, meta), media_type="application/xml")
