@@ -9,7 +9,10 @@ background indexing.
 
 Implements the S3 subset boto3 needs to manage, store and retrieve
 objects: `ListBuckets`, `CreateBucket`, `HeadBucket`, `DeleteBucket`,
-`ListObjects` (v1 & v2, with `Prefix` / `Delimiter`), `HeadObject`,
+`ListObjects` (v1 & v2, with `Prefix` / `Delimiter`, and paging via
+`MaxKeys` / `Marker` / `StartAfter` / `ContinuationToken` - listings
+report `IsTruncated` plus `NextMarker` / `NextContinuationToken`, and a
+page's `MaxKeys` counts objects and common prefixes alike), `HeadObject`,
 `GetObject`, `PutObject`, `CopyObject`, `DeleteObjects` (batch, `?delete=`),
 `DeleteObject` and the multipart upload operations (`CreateMultipartUpload`,
 `UploadPart`, `ListParts`, `CompleteMultipartUpload`, `AbortMultipartUpload`).

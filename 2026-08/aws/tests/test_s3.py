@@ -131,6 +131,82 @@ def test_list_objects_v1(s3):
     assert any(c["Key"] == "hello.txt" for c in s3.list_objects(Bucket="data")["Contents"])
 
 
+def test_list_objects_v2_pagination(s3):
+    keys = [f"pg/{i:03d}.txt" for i in range(12)]
+    for key in keys:
+        s3.put_object(Bucket="data", Key=key, Body=b"page")
+
+    first = s3.list_objects_v2(Bucket="data", Prefix="pg/", MaxKeys=5)
+    assert [c["Key"] for c in first["Contents"]] == keys[:5]
+    assert first["KeyCount"] == 5
+    assert first["IsTruncated"] is True
+
+    second = s3.list_objects_v2(
+        Bucket="data", Prefix="pg/", MaxKeys=5,
+        ContinuationToken=first["NextContinuationToken"])
+    assert [c["Key"] for c in second["Contents"]] == keys[5:10]
+    assert second["ContinuationToken"] == first["NextContinuationToken"]
+
+    last = s3.list_objects_v2(
+        Bucket="data", Prefix="pg/", MaxKeys=5,
+        ContinuationToken=second["NextContinuationToken"])
+    assert [c["Key"] for c in last["Contents"]] == keys[10:]
+    assert last["IsTruncated"] is False
+    assert "NextContinuationToken" not in last
+
+
+def test_list_objects_v2_start_after(s3):
+    keys = [f"sa/{i:03d}.txt" for i in range(6)]
+    for key in keys:
+        s3.put_object(Bucket="data", Key=key, Body=b"x")
+
+    page = s3.list_objects_v2(Bucket="data", Prefix="sa/", StartAfter="sa/002.txt")
+    assert [c["Key"] for c in page["Contents"]] == keys[3:]
+    assert page["IsTruncated"] is False
+
+
+def test_list_objects_v1_marker_pagination(s3):
+    for key in ("dx/a/1", "dx/a/2", "dx/b/3", "dy/z"):
+        s3.put_object(Bucket="data", Key=key, Body=b"x")
+
+    # a delimited listing pages through the common prefixes: MaxKeys
+    # counts them, and NextMarker can land on one
+    page = s3.list_objects(Bucket="data", Prefix="d", Delimiter="/", MaxKeys=1)
+    assert [cp["Prefix"] for cp in page["CommonPrefixes"]] == ["dx/"]
+    assert page["IsTruncated"] is True
+    marker = page["NextMarker"]
+
+    next_page = s3.list_objects(Bucket="data", Prefix="d", Delimiter="/",
+                                MaxKeys=1, Marker=marker)
+    assert [cp["Prefix"] for cp in next_page["CommonPrefixes"]] == ["dy/"]
+    assert next_page["IsTruncated"] is False
+    assert "NextMarker" not in next_page
+
+
+def test_list_objects_paginator_walks_all_pages(s3):
+    keys = [f"pn/{i:03d}.txt" for i in range(7)]
+    for key in keys:
+        s3.put_object(Bucket="data", Key=key, Body=b"x")
+
+    v2 = [c["Key"]
+          for page in s3.get_paginator("list_objects_v2").paginate(
+              Bucket="data", Prefix="pn/", PaginationConfig={"PageSize": 3})
+          for c in page["Contents"]]
+    assert v2 == keys
+
+    v1 = [c["Key"]
+          for page in s3.get_paginator("list_objects").paginate(
+              Bucket="data", Prefix="pn/", PaginationConfig={"PageSize": 3})
+          for c in page["Contents"]]
+    assert v1 == keys
+
+
+def test_list_objects_invalid_max_keys(s3):
+    with pytest.raises(ClientError) as err:
+        s3.list_objects_v2(Bucket="data", Prefix="pg/", MaxKeys=0)
+    assert err.value.response["Error"]["Code"] == "InvalidArgument"
+
+
 # --- object retrieval ---
 
 

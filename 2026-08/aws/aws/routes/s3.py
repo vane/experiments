@@ -9,7 +9,10 @@ subdirectory (see ``aws/service/s3.py``).  Listings are computed from the
 index, so no filesystem walking is involved and a key can never escape
 the store.  Supported calls:
 ListBuckets, CreateBucket, HeadBucket, DeleteBucket, ListObjects
-(v1 and v2, with ``Prefix``/``Delimiter``), HeadObject and GetObject
+(v1 and v2, with ``Prefix``/``Delimiter`` and paging via ``MaxKeys``,
+``Marker``/``StartAfter``/``ContinuationToken`` - ``IsTruncated``,
+``NextMarker`` and ``NextContinuationToken`` mark the next page),
+HeadObject and GetObject
 (both honouring the ``Range`` and the ``If-Match``/``If-None-Match``
 conditional headers), PutObject, CopyObject, DeleteObjects, DeleteObject
 and the multipart upload operations (``CreateMultipartUpload``,
@@ -77,19 +80,31 @@ def _content(key: str, m: dict) -> str:
             "<StorageClass>STANDARD</StorageClass></Contents>")
 
 
-def _list_v2_xml(name: str, prefix: str, objects: list, prefixes: list) -> str:
+def _list_v2_xml(name: str, prefix: str, objects: list, prefixes: list,
+                 max_keys: int, truncated: bool, token: str | None,
+                 next_token: str | None) -> str:
     parts = [f"<ListBucketResult {S3_NS}><Name>{escape(name)}</Name><Prefix>{escape(prefix)}</Prefix>",
-             f"<KeyCount>{len(objects) + len(prefixes)}</KeyCount><MaxKeys>1000</MaxKeys>",
-             "<IsTruncated>false</IsTruncated>"]
+             f"<KeyCount>{len(objects) + len(prefixes)}</KeyCount><MaxKeys>{max_keys}</MaxKeys>",
+             f"<IsTruncated>{'true' if truncated else 'false'}</IsTruncated>"]
+    if token:
+        parts.append(f"<ContinuationToken>{escape(token)}</ContinuationToken>")
+    if next_token:
+        parts.append(f"<NextContinuationToken>{escape(next_token)}</NextContinuationToken>")
     parts += [f"<CommonPrefixes><Prefix>{escape(p)}</Prefix></CommonPrefixes>" for p in prefixes]
     parts += [_content(k, m) for k, m in objects]
     parts.append("</ListBucketResult>")
     return "".join(parts)
 
 
-def _list_v1_xml(name: str, prefix: str, objects: list) -> str:
+def _list_v1_xml(name: str, prefix: str, objects: list, prefixes: list,
+                 max_keys: int, marker: str, truncated: bool,
+                 next_marker: str | None) -> str:
     parts = [f"<ListBucketResult {S3_NS}><Name>{escape(name)}</Name><Prefix>{escape(prefix)}</Prefix>",
-             "<Marker></Marker><MaxKeys>1000</MaxKeys><IsTruncated>false</IsTruncated>"]
+             f"<Marker>{escape(marker)}</Marker><MaxKeys>{max_keys}</MaxKeys>",
+             f"<IsTruncated>{'true' if truncated else 'false'}</IsTruncated>"]
+    if next_marker:
+        parts.append(f"<NextMarker>{escape(next_marker)}</NextMarker>")
+    parts += [f"<CommonPrefixes><Prefix>{escape(p)}</Prefix></CommonPrefixes>" for p in prefixes]
     parts += [_content(k, m) for k, m in objects]
     parts.append("</ListBucketResult>")
     return "".join(parts)
@@ -131,12 +146,28 @@ async def list_bucket_objects(request: Request, bucket: str) -> Response:
         return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
     prefix = request.query_params.get("prefix", "")
     delimiter = request.query_params.get("delimiter")
-    objects, prefixes = store.list_objects(bucket, prefix, delimiter)
+    max_keys = _parse_max_keys(request.query_params.get("max-keys"))
+    if max_keys is None:
+        return _error(400, "InvalidArgument",
+                      "Value for max-keys must be an integer greater than 0.")
     if request.query_params.get("list-type") == "2":
-        xml = _list_v2_xml(bucket, prefix, objects, prefixes)
-    else:
-        xml = _list_v1_xml(bucket, prefix, objects)
-    return Response(xml, media_type="application/xml")
+        # a continuation token is the exact resume point of a previous
+        # page and wins over start-after when both are given
+        token = request.query_params.get("continuation-token")
+        marker = token or request.query_params.get("start-after") or None
+        objects, prefixes, next_marker, truncated = store.list_objects_page(
+            bucket, prefix, delimiter, marker, max_keys)
+        return Response(
+            _list_v2_xml(bucket, prefix, objects, prefixes, max_keys,
+                         truncated, token, next_marker),
+            media_type="application/xml")
+    marker = request.query_params.get("marker", "")
+    objects, prefixes, next_marker, truncated = store.list_objects_page(
+        bucket, prefix, delimiter, marker or None, max_keys)
+    return Response(
+        _list_v1_xml(bucket, prefix, objects, prefixes, max_keys,
+                     marker, truncated, next_marker),
+        media_type="application/xml")
 
 
 @router.delete("/{bucket}")
@@ -173,6 +204,21 @@ def _meta_headers(request: Request) -> dict:
         for name, value in request.headers.items()
         if name.startswith(prefix)
     }
+
+
+def _parse_max_keys(raw: str | None) -> int | None:
+    """The requested page size (``max-keys``): S3's default of 1000 when
+    absent, clamped to 1000 when larger, or ``None`` when not a positive
+    integer."""
+    if raw is None:
+        return 1000
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    if value < 1:
+        return None
+    return min(value, 1000)
 
 
 def _parse_range(header: str | None, size: int) -> tuple[int, int] | None:

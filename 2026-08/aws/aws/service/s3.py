@@ -284,6 +284,25 @@ class S3Store:
         self, bucket: str, prefix: str, delimiter: str | None
     ) -> tuple[list[tuple[str, dict]], list[str]]:
         """The bucket's objects (key, meta) and common prefixes."""
+        objects, prefixes, _, _ = self.list_objects_page(
+            bucket, prefix, delimiter, None, len(self.objects)
+        )
+        return objects, prefixes
+
+    def list_objects_page(
+        self, bucket: str, prefix: str, delimiter: str | None,
+        marker: str | None, max_keys: int,
+    ) -> tuple[list[tuple[str, dict]], list[str], str | None, bool]:
+        """One page of the bucket's listing, S3-style.
+
+        Objects and common prefixes form a single stream sorted by key
+        (S3 interleaves them in the response); ``marker`` starts the page
+        just after that key, and ``max_keys`` bounds how many entries the
+        page holds, objects and prefixes alike.  Returns the page's
+        objects and prefixes, the marker that fetches the next page
+        (``None`` when the page is the last one), and whether entries
+        follow the page.
+        """
         objects: list[tuple[str, dict]] = []
         prefixes: set[str] = set()
         for (b, key), meta in self.objects.items():
@@ -294,7 +313,21 @@ class S3Store:
                 prefixes.add(prefix + rest.split(delimiter, 1)[0] + delimiter)
             else:
                 objects.append((key, meta))
-        return sorted(objects), sorted(prefixes)
+
+        entries: list[tuple[str, dict | None]] = [(k, m) for k, m in objects]
+        entries += [(p, None) for p in prefixes]
+        entries.sort(key=lambda entry: entry[0])
+        if marker is not None:
+            entries = [entry for entry in entries if entry[0] > marker]
+        truncated = len(entries) > max_keys
+        page = entries[:max_keys]
+        next_marker = page[-1][0] if truncated else None
+        return (
+            [(k, m) for k, m in page if m is not None],
+            [k for k, m in page if m is None],
+            next_marker,
+            truncated,
+        )
 
     # --- multipart uploads ---
     #
