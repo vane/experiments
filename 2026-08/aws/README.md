@@ -1,8 +1,11 @@
 # fs-s3
 
-S3-compatible boto3 API over a local `data/` directory.
+S3-compatible boto3 API over a local `data/` store: bucket and object
+metadata live in `data/s3.csv` (one row each), and object contents live
+under `data/data/` (one flat file per object).
 Stateless: every response (listings, hashes, metadata) is computed live
-from the filesystem per request — no cache, no background indexing.
+from the CSV and the files it names per request — no cache, no background
+indexing.
 
 Implements the S3 subset boto3 needs to manage, store and retrieve
 objects: `ListBuckets`, `CreateBucket`, `HeadBucket`, `DeleteBucket`,
@@ -24,19 +27,20 @@ object's bytes to the destination and gives the new object a fresh
 `LastModified`; a missing source key returns `NoSuchKey`. `DeleteObjects`
 (`s3.delete_objects`) removes several keys in one request and reports each as
 `Deleted` in the `DeleteResult` (deleting a missing key is a no-op, like
-`DeleteObject`); a key that escapes the bucket is reported as an `Error`.
+`DeleteObject`).
 `Quiet` suppresses the result list. Signatures are accepted but not verified.
 
-Buckets are real: each bucket is a directory under `data/`, and object
-keys map to files inside that bucket's directory. `CreateBucket` makes
-the directory, `PutObject` writes files directly into it (creating
-intermediate directories as needed), `DeleteObject` removes files, and
-`DeleteBucket` removes the directory, so buckets are isolated and
-everything reflects the live filesystem.
+Buckets and objects are CSV records: `CreateBucket` adds a bucket row,
+`PutObject` writes the object's bytes under `data/data/<bucket>/` (a flat
+percent-encoded file per key, so a key can never escape the store or
+collide with a directory) and adds its metadata row, `DeleteObject`
+removes both, and `DeleteBucket` removes the bucket row and its content
+directory, so buckets are isolated and everything reflects the live
+store. Listings are computed from the CSV, without walking the
+filesystem.
 `DeleteBucket` only succeeds while the bucket holds no objects — it
-returns `BucketNotEmpty` (409) if any files remain. Empty directories
-under the bucket are not objects, so they don't block deletion.
-Deleting a missing bucket returns `NoSuchBucket`.
+returns `BucketNotEmpty` (409) if any remain. Deleting a missing bucket
+returns `NoSuchBucket`.
 Missing buckets return `NoSuchBucket`, missing keys `NoSuchKey`.
 
 ## Run
@@ -72,7 +76,7 @@ data = s3.get_object(Bucket="demo", Key="hello.txt")["Body"].read()
     .venv/bin/python -m pytest tests/test_s3.py
 
 The suite boots a private server per test against an isolated temporary
-store (the app's data directory is mocked via ``monkeypatch``); it never
+store (the store instance is swapped via ``monkeypatch``); it never
 touches ``data/``.
 
 # fs-sqs

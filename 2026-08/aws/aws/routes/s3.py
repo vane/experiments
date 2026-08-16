@@ -1,9 +1,13 @@
-"""S3-compatible REST routes backed by a local data directory.
+"""S3-compatible REST routes backed by a CSV metadata store.
 
 Implements just enough of the S3 REST protocol for a boto3 client to
-manage, store and retrieve objects.  Buckets are directories under
-``DATA_DIR``; a bucket's objects are the files beneath it.  Supported
-calls: ListBuckets, CreateBucket, HeadBucket, DeleteBucket, ListObjects
+manage, store and retrieve objects.  Metadata (one row per bucket and
+per object: last-modified, size, ETag, content type) lives in the CSV
+file ``s3.csv`` under the data directory, and object contents live as
+flat files under its ``data/`` subdirectory (see ``aws/service/s3.py``).
+Listings are computed from the CSV, so no filesystem walking is
+involved and a key can never escape the store.  Supported calls:
+ListBuckets, CreateBucket, HeadBucket, DeleteBucket, ListObjects
 (v1 and v2, with ``Prefix``/``Delimiter``), HeadObject and GetObject
 (both honouring the ``Range`` and the ``If-Match``/``If-None-Match``
 conditional headers), PutObject, CopyObject, DeleteObjects
@@ -11,90 +15,48 @@ and DeleteObject.  CopyObject is a ``PutObject`` that carries the
 ``x-amz-copy-source`` header; it copies the source object's bytes to the
 destination, giving the new object a fresh ``LastModified``.  DeleteObjects
 is the ``?delete=`` batch endpoint: it removes several keys in one request,
-reporting each as ``Deleted`` (``Error`` for a key that escapes the bucket).
-On a ``PutObject`` the ``If-Match``/``If-None-Match`` headers guard the
-write instead: any failed precondition aborts it with 412
-``PreconditionFailed`` (``If-None-Match: *`` is the usual
-create-only-if-absent guard).
+reporting each as ``Deleted``.  On a ``PutObject`` the
+``If-Match``/``If-None-Match`` headers guard the write instead: any failed
+precondition aborts it with 412 ``PreconditionFailed`` (``If-None-Match: *``
+is the usual create-only-if-absent guard).
 
-Everything is read from, and written to, the filesystem on every
-request - no state, no cache.  Request signatures are accepted but
-not verified.
+Every request reads the CSV and the content files it names - no cache,
+no background indexing.  Request signatures are accepted but not
+verified.
 """
 
 from __future__ import annotations
 
-import hashlib
-import mimetypes
-import os
 import re
-import shutil
 import xml.etree.ElementTree as ET
-from datetime import UTC, datetime
+from datetime import datetime
 from email.utils import format_datetime
-from pathlib import Path
 from urllib.parse import unquote
 from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, Request, Response
 
 from aws.settings import DATA_DIR
+from aws.service.s3 import S3Store
 
 S3_NS = 'xmlns="http://s3.amazonaws.com/doc/2006-03-01/"'
 
 router = APIRouter()
 
-
-def _bucket_dir(bucket: str) -> Path | None:
-    """Bucket name -> the directory under DATA_DIR, or None if it escapes it."""
-    p = (DATA_DIR / bucket).resolve()
-    try:
-        p.relative_to(DATA_DIR)
-    except ValueError:
-        return None
-    return p
+# The CSV-backed store; tests swap this out for an isolated temporary store.
+store = S3Store(DATA_DIR)
 
 
-def _meta(p: Path) -> dict:
-    st = p.stat()
-    h = hashlib.md5()
-    with p.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 16), b""):
-            h.update(chunk)
-    return {
-        "size": st.st_size,
-        "mtime": datetime.fromtimestamp(st.st_mtime, UTC),
-        "etag": h.hexdigest(),
-        "type": mimetypes.guess_type(p.name)[0] or "application/octet-stream",
-    }
+def _iso_z(dt: datetime) -> str:
+    """A datetime in S3's ISO-8601 UTC form (millisecond precision)."""
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 def _content(key: str, m: dict) -> str:
-    iso = m["mtime"].strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    iso = _iso_z(m["last_modified"])
     return (f"<Contents><Key>{escape(key)}</Key><LastModified>{iso}</LastModified>"
             f"<ETag>&quot;{m['etag']}&quot;</ETag><Size>{m['size']}</Size>"
             "<StorageClass>STANDARD</StorageClass></Contents>")
-
-
-def _walk(bucket: str, prefix: str, delimiter: str | None) -> tuple[list[tuple[str, dict]], list[str]]:
-    base = _bucket_dir(bucket)
-    objects = []
-    prefixes = set()
-    if base is None or not base.is_dir():
-        return objects, sorted(prefixes)
-    for root, dirs, files in os.walk(base):
-        dirs.sort()
-        files.sort()
-        for name in files:
-            rel = (Path(root) / name).relative_to(base).as_posix()
-            if not rel.startswith(prefix):
-                continue
-            rest = rel[len(prefix):]
-            if delimiter and delimiter in rest:
-                prefixes.add(prefix + rest.split(delimiter, 1)[0] + delimiter)
-                continue
-            objects.append((rel, _meta(Path(root) / name)))
-    return objects, sorted(prefixes)
 
 
 def _list_v2_xml(name: str, prefix: str, objects: list, prefixes: list) -> str:
@@ -122,12 +84,10 @@ def _error(status: int, code: str, message: str) -> Response:
 
 @router.get("/")
 async def list_buckets() -> Response:
-    buckets = []
-    for p in sorted(DATA_DIR.iterdir(), key=lambda x: x.name):
-        if not p.is_dir():
-            continue
-        created = datetime.fromtimestamp(p.stat().st_mtime, UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-        buckets.append(f"<Bucket><Name>{escape(p.name)}</Name><CreationDate>{created}</CreationDate></Bucket>")
+    buckets = [
+        f"<Bucket><Name>{escape(name)}</Name><CreationDate>{_iso_z(created)}</CreationDate></Bucket>"
+        for name, created in store.list_buckets()
+    ]
     xml = (f"<ListAllMyBucketsResult {S3_NS}><Owner><ID>local</ID></Owner>"
            f"<Buckets>{''.join(buckets)}</Buckets></ListAllMyBucketsResult>")
     return Response(xml, media_type="application/xml")
@@ -135,31 +95,25 @@ async def list_buckets() -> Response:
 
 @router.put("/{bucket}")
 async def create_bucket(bucket: str) -> Response:
-    base = _bucket_dir(bucket)
-    if base is None:
+    if not store.create_bucket(bucket):
         return _error(400, "InvalidBucketName", "The specified bucket is not valid.")
-    base.mkdir(parents=True, exist_ok=True)
     return Response(status_code=200, headers={"Location": f"/{bucket}"})
 
 
 @router.head("/{bucket}")
 async def head_bucket(bucket: str) -> Response:
-    base = _bucket_dir(bucket)
-    if base is None or not base.is_dir():
+    if not store.bucket_exists(bucket):
         return Response(status_code=404)
     return Response(status_code=200)
 
 
 @router.get("/{bucket}")
 async def list_bucket_objects(request: Request, bucket: str) -> Response:
-    base = _bucket_dir(bucket)
-    if base is None:
-        return _error(400, "InvalidBucketName", "The specified bucket is not valid.")
-    if not base.is_dir():
+    if not store.bucket_exists(bucket):
         return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
     prefix = request.query_params.get("prefix", "")
     delimiter = request.query_params.get("delimiter")
-    objects, prefixes = _walk(bucket, prefix, delimiter)
+    objects, prefixes = store.list_objects(bucket, prefix, delimiter)
     if request.query_params.get("list-type") == "2":
         xml = _list_v2_xml(bucket, prefix, objects, prefixes)
     else:
@@ -169,37 +123,19 @@ async def list_bucket_objects(request: Request, bucket: str) -> Response:
 
 @router.delete("/{bucket}")
 async def delete_bucket(bucket: str) -> Response:
-    base = _bucket_dir(bucket)
-    if base is None:
-        return _error(400, "InvalidBucketName", "The specified bucket is not valid.")
-    if not base.is_dir():
+    if not store.bucket_exists(bucket):
         return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
-    if any(p.is_file() for p in base.rglob("*")):
+    if store.object_count(bucket):
         return _error(409, "BucketNotEmpty", "The bucket you tried to delete is not empty.")
-    shutil.rmtree(base)
+    store.delete_bucket(bucket)
     return Response(status_code=204)
-
-
-def _object_path(bucket: str, key: str) -> Path | Response:
-    """Resolve a key inside a bucket, or return an S3 error response."""
-    base = _bucket_dir(bucket)
-    if base is None:
-        return _error(400, "InvalidBucketName", "The specified bucket is not valid.")
-    if not base.is_dir():
-        return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
-    p = (base / key).resolve()
-    try:
-        p.relative_to(base)
-    except ValueError:
-        return _error(404, "NoSuchKey", "The specified key does not exist.")
-    return p
 
 
 def _object_headers(m: dict) -> dict:
     return {
         "ETag": f'"{m["etag"]}"',
-        "Content-Type": m["type"],
-        "Last-Modified": format_datetime(m["mtime"]),
+        "Content-Type": m["content_type"],
+        "Last-Modified": format_datetime(m["last_modified"]),
         "Content-Length": str(m["size"]),
     }
 
@@ -276,13 +212,13 @@ def _precondition_response(request: Request, m: dict) -> Response | None:
             status_code=304,
             headers={
                 "ETag": f'"{m["etag"]}"',
-                "Last-Modified": format_datetime(m["mtime"]),
+                "Last-Modified": format_datetime(m["last_modified"]),
             },
         )
     return None
 
 
-def _put_precondition_response(request: Request, path: Path) -> Response | None:
+def _put_precondition_response(request: Request, existing_etag: str | None) -> Response | None:
     """Evaluate the If-Match / If-None-Match headers for a ``PutObject``.
 
     A failed precondition returns a 412 ``PreconditionFailed``; None means
@@ -293,7 +229,6 @@ def _put_precondition_response(request: Request, path: Path) -> Response | None:
     if_match = request.headers.get("if-match")
     if if_match is None and request.headers.get("if-none-match") is None:
         return None
-    existing_etag = _meta(path)["etag"] if path.is_file() else None
     if if_match is not None and (
         existing_etag is None or not _etag_matches(if_match, existing_etag)
     ):
@@ -332,28 +267,19 @@ def _copy_object(bucket: str, key: str, source: str) -> Response:
     if parsed is None:
         return _error(400, "InvalidArgument", "The x-amz-copy-source header is malformed.")
     src_bucket, src_key = parsed
-
-    src = _object_path(src_bucket, src_key)
-    if isinstance(src, Response):
-        return src
-    if not src.is_file():
+    if not store.bucket_exists(src_bucket):
+        return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
+    if store.object_meta(src_bucket, src_key) is None:
         return _error(404, "NoSuchKey", "The specified key does not exist.")
-
-    dest = _object_path(bucket, key)
-    if isinstance(dest, Response):
-        return dest
-    if src != dest:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(src, dest)
-
-    m = _meta(dest)
-    iso = m["mtime"].strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    if not store.bucket_exists(bucket):
+        return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
+    m = store.copy_object(src_bucket, src_key, bucket, key)
     body = (f"<CopyObjectResult {S3_NS}><ETag>&quot;{m['etag']}&quot;</ETag>"
-            f"<LastModified>{iso}</LastModified></CopyObjectResult>")
+            f"<LastModified>{_iso_z(m['last_modified'])}</LastModified></CopyObjectResult>")
     return Response(
         body,
         status_code=200,
-        headers={"ETag": f'"{m["etag"]}"', "Last-Modified": format_datetime(m["mtime"])},
+        headers={"ETag": f'"{m["etag"]}"', "Last-Modified": format_datetime(m["last_modified"])},
         media_type="application/xml",
     )
 
@@ -366,31 +292,28 @@ async def put_object(request: Request, bucket: str, key: str) -> Response:
     # read the body up front: an unread body would desync a keep-alive
     # connection if an error is returned before the write
     data = await request.body()
-    p = _object_path(bucket, key)
-    if isinstance(p, Response):
-        return p
-    pre = _put_precondition_response(request, p)
+    if not store.bucket_exists(bucket):
+        return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
+    existing = store.object_meta(bucket, key)
+    pre = _put_precondition_response(request, existing["etag"] if existing is not None else None)
     if pre is not None:
         return pre
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_bytes(data)
-    etag = hashlib.md5(data).hexdigest()
+    m = store.put_object(bucket, key, data)
     return Response(
-        f'<PutObjectResult {S3_NS}><ETag>&quot;{etag}&quot;</ETag></PutObjectResult>',
+        f'<PutObjectResult {S3_NS}><ETag>&quot;{m["etag"]}&quot;</ETag></PutObjectResult>',
         status_code=200,
-        headers={"ETag": f'"{etag}"'},
+        headers={"ETag": f'"{m["etag"]}"'},
         media_type="application/xml",
     )
 
 
 @router.head("/{bucket}/{key:path}")
 async def head_object(request: Request, bucket: str, key: str) -> Response:
-    p = _object_path(bucket, key)
-    if isinstance(p, Response):
-        return p
-    if not p.is_file():
+    if not store.bucket_exists(bucket):
+        return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
+    m = store.object_meta(bucket, key)
+    if m is None:
         return _error(404, "NoSuchKey", "The specified key does not exist.")
-    m = _meta(p)
     pre = _precondition_response(request, m)
     if pre is not None:
         return pre
@@ -411,12 +334,11 @@ async def head_object(request: Request, bucket: str, key: str) -> Response:
 
 @router.get("/{bucket}/{key:path}")
 async def get_object(request: Request, bucket: str, key: str) -> Response:
-    p = _object_path(bucket, key)
-    if isinstance(p, Response):
-        return p
-    if not p.is_file():
+    if not store.bucket_exists(bucket):
+        return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
+    m = store.object_meta(bucket, key)
+    if m is None:
         return _error(404, "NoSuchKey", "The specified key does not exist.")
-    m = _meta(p)
     pre = _precondition_response(request, m)
     if pre is not None:
         return pre
@@ -426,15 +348,16 @@ async def get_object(request: Request, bucket: str, key: str) -> Response:
         span = _parse_range(request.headers.get("range"), m["size"])
     except ValueError:
         return _range_not_satisfiable(m["size"])
+    path = store.content_path(bucket, key)
     if span is None:
-        return Response(p.read_bytes(), headers=headers, media_type=m["type"])
+        return Response(path.read_bytes(), headers=headers, media_type=m["content_type"])
     start, end = span
-    with p.open("rb") as f:
+    with path.open("rb") as f:
         f.seek(start)
         data = f.read(end - start + 1)
     headers["Content-Range"] = f"bytes {start}-{end}/{m['size']}"
     headers["Content-Length"] = str(len(data))
-    return Response(data, status_code=206, headers=headers, media_type=m["type"])
+    return Response(data, status_code=206, headers=headers, media_type=m["content_type"])
 
 
 def _local(tag: str) -> str:
@@ -471,10 +394,7 @@ async def delete_objects(request: Request, bucket: str) -> Response:
     """DeleteObjects: remove several keys in one ``?delete=`` request."""
     if "delete" not in request.query_params:
         return _error(400, "InvalidRequest", "Expected a batch-delete request.")
-    base = _bucket_dir(bucket)
-    if base is None:
-        return _error(400, "InvalidBucketName", "The specified bucket is not valid.")
-    if not base.is_dir():
+    if not store.bucket_exists(bucket):
         return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
 
     body = await request.body()
@@ -482,35 +402,20 @@ async def delete_objects(request: Request, bucket: str) -> Response:
     if keys is None:
         return _error(400, "MalformedXML", "The XML you provided was not well-formed.")
 
-    deleted: list[str] = []
-    errors: list[tuple[str, str, str]] = []
-    for key in keys:
-        p = _object_path(bucket, key)
-        if isinstance(p, Response):
-            # the bucket is valid, so the only error here is an escaping key
-            errors.append((key, "NoSuchKey", "The specified key does not exist."))
-            continue
-        p.unlink(missing_ok=True)  # idempotent, like DeleteObject
-        deleted.append(key)
+    deleted = store.delete_objects(bucket, keys)
 
     if quiet:
         return Response(status_code=200)
 
     parts = [f"<DeleteResult {S3_NS}>"]
     parts += [f"<Deleted><Key>{escape(k)}</Key></Deleted>" for k in deleted]
-    parts += [
-        f"<Error><Key>{escape(k)}</Key><Code>{code}</Code><Message>{escape(message)}</Message></Error>"
-        for (k, code, message) in errors
-    ]
     parts.append("</DeleteResult>")
     return Response("".join(parts), media_type="application/xml")
 
 
 @router.delete("/{bucket}/{key:path}")
 async def delete_object(bucket: str, key: str) -> Response:
-    p = _object_path(bucket, key)
-    if isinstance(p, Response):
-        return p
-    if not p.is_dir():
-        p.unlink(missing_ok=True)  # idempotent, like S3
+    if not store.bucket_exists(bucket):
+        return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
+    store.delete_object(bucket, key)
     return Response(status_code=204)

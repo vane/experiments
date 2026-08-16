@@ -1,4 +1,4 @@
-"""fs-s3: S3-compatible API over a local directory.
+"""fs-s3: S3-compatible API over a CSV-backed local store.
 
 The S3 routes live in ``aws.routes.s3``; this module only assembles the
 FastAPI app and wires the router in.  The app is the boto3-facing
