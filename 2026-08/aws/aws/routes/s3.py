@@ -16,10 +16,14 @@ HeadObject and GetObject
 (both honouring the ``Range`` and the ``If-Match``/``If-None-Match``
 conditional headers), PutObject, CopyObject, DeleteObjects, DeleteObject
 and the multipart upload operations (``CreateMultipartUpload``,
-``UploadPart``, ``ListParts``, ``CompleteMultipartUpload``,
-``AbortMultipartUpload``). CopyObject is a ``PutObject`` that carries the
-``x-amz-copy-source`` header; it copies the source object's bytes to the
-destination, giving the new object a fresh ``LastModified``.  DeleteObjects
+``UploadPart``, ``UploadPartCopy``, ``ListParts``,
+``CompleteMultipartUpload``, ``AbortMultipartUpload``). CopyObject is a
+``PutObject`` that carries the ``x-amz-copy-source`` header; it copies the
+source object's bytes to the destination, giving the new object a fresh
+``LastModified``.  ``UploadPartCopy`` is an ``UploadPart`` (a ``PutObject``
+with the ``uploadId`` query parameter) carrying the same header: the source
+object's bytes are stored as the part, and the destination object only
+materialises when the upload completes.  DeleteObjects
 is the ``?delete=`` batch endpoint: it removes several keys in one request,
 reporting each as ``Deleted``.  On a ``PutObject`` the
 ``If-Match``/``If-None-Match`` headers guard the write instead: any failed
@@ -378,6 +382,12 @@ def _copy_object(bucket: str, key: str, source: str,
 
 @router.put("/{bucket}/{key:path}")
 async def put_object(request: Request, bucket: str, key: str) -> Response:
+    # an uploadId makes this an UploadPart (or an UploadPartCopy carrying
+    # x-amz-copy-source) and must be caught before the copy check below,
+    # which would otherwise treat it as a CopyObject onto the key
+    upload_id = request.query_params.get("uploadId")
+    if upload_id:
+        return await _upload_part(request, bucket, key, upload_id)
     copy_source = request.headers.get("x-amz-copy-source")
     if copy_source is not None:
         directive = (request.headers.get("x-amz-metadata-directive") or "").upper()
@@ -385,9 +395,6 @@ async def put_object(request: Request, bucket: str, key: str) -> Response:
             bucket, key, copy_source,
             _meta_headers(request) if directive == "REPLACE" else None,
         )
-    upload_id = request.query_params.get("uploadId")
-    if upload_id:
-        return await _upload_part(request, bucket, key, upload_id)
     # read the body up front: an unread body would desync a keep-alive
     # connection if an error is returned before the write
     data = await request.body()
@@ -599,9 +606,13 @@ def _parse_complete_body(body: bytes) -> list[tuple[int, str]] | None:
 
 async def _upload_part(request: Request, bucket: str, key: str,
                        upload_id: str) -> Response:
-    """UploadPart: store one part of an in-flight upload (``?uploadId=``)."""
-    # read the body up front, like put_object: an unread body would desync
-    # a keep-alive connection if an error is returned before the write
+    """UploadPart, or UploadPartCopy when the request carries
+    ``x-amz-copy-source``: store one part of an in-flight upload
+    (``?uploadId=``), taking its bytes from the body or from the source
+    object."""
+    # read the body up front: an unread body would desync a keep-alive
+    # connection if an error is returned before the write (it is empty for
+    # UploadPartCopy - the bytes come from the source object)
     data = await request.body()
     if not store.bucket_exists(bucket):
         return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
@@ -611,16 +622,35 @@ async def _upload_part(request: Request, bucket: str, key: str,
         return _error(400, "InvalidArgument", "The partNumber query parameter must be an integer.")
     if not 1 <= number <= MAX_PART_NUMBER:
         return _error(400, "InvalidArgument", "The partNumber query parameter must be between 1 and 10000.")
+    copy_source = request.headers.get("x-amz-copy-source")
+    if copy_source is not None:
+        source = _parse_copy_source(copy_source)
+        if source is None:
+            return _error(400, "InvalidArgument", "The x-amz-copy-source header is malformed.")
+        src_bucket, src_key = source
+        if not store.bucket_exists(src_bucket):
+            return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
+        if store.object_meta(src_bucket, src_key) is None:
+            return _error(404, "NoSuchKey", "The specified key does not exist.")
+        data = store.content_path(src_bucket, src_key).read_bytes()
     part = store.upload_part(bucket, key, upload_id, number, data)
     if part is None:
         return _error(404, "NoSuchUpload", "The specified upload does not exist.")
-    return Response(
-        status_code=200,
-        headers={
-            "ETag": f'"{part["etag"]}"',
-            "Last-Modified": format_datetime(part["last_modified"]),
-        },
-    )
+    headers = {
+        "ETag": f'"{part["etag"]}"',
+        "Last-Modified": format_datetime(part["last_modified"]),
+    }
+    if copy_source is not None:
+        # botocore reads UploadPartCopy's ETag/LastModified from the
+        # CopyPartResult body, not from the headers (unlike UploadPart)
+        return Response(
+            f'<CopyPartResult {S3_NS}><ETag>&quot;{part["etag"]}&quot;</ETag>'
+            f"<LastModified>{_iso_z(part['last_modified'])}</LastModified></CopyPartResult>",
+            status_code=200,
+            headers=headers,
+            media_type="application/xml",
+        )
+    return Response(status_code=200, headers=headers)
 
 
 def _list_parts(bucket: str, key: str, upload_id: str) -> Response:

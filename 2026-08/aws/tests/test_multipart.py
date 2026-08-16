@@ -136,6 +136,47 @@ def test_upload_part_reupload_overwrites(s3):
     assert s3.get_object(Bucket="mp", Key="r.bin")["Body"].read() == b"two"
 
 
+def test_upload_part_copy(s3):
+    # UploadPartCopy: the part's bytes come from the source object, and the
+    # destination object only materialises when the upload completes
+    source = b"part copy payload\n" * 64
+    s3.put_object(Bucket="mp", Key="src.bin", Body=source)
+
+    upload_id = s3.create_multipart_upload(Bucket="mp", Key="dst.bin")["UploadId"]
+    # botocore nests UploadPartCopy's result: ETag lives under CopyPartResult
+    copied = s3.upload_part_copy(
+        Bucket="mp", Key="dst.bin", PartNumber=1, UploadId=upload_id,
+        CopySource={"Bucket": "mp", "Key": "src.bin"},
+    )
+    etag = copied["CopyPartResult"]["ETag"]
+    with pytest.raises(ClientError) as err:
+        s3.get_object(Bucket="mp", Key="dst.bin")
+    assert err.value.response["Error"]["Code"] == "NoSuchKey"
+
+    parts = s3.list_parts(Bucket="mp", Key="dst.bin", UploadId=upload_id)["Parts"]
+    assert [(p["PartNumber"], p["Size"]) for p in parts] == [(1, len(source))]
+
+    s3.complete_multipart_upload(
+        Bucket="mp", Key="dst.bin", UploadId=upload_id,
+        MultipartUpload={"Parts": [{"PartNumber": 1, "ETag": etag}]},
+    )
+    assert s3.get_object(Bucket="mp", Key="dst.bin")["Body"].read() == source
+    assert s3.get_object(Bucket="mp", Key="src.bin")["Body"].read() == source
+
+
+def test_upload_part_copy_missing_source(s3):
+    upload_id = s3.create_multipart_upload(Bucket="mp", Key="dst.bin")["UploadId"]
+    with pytest.raises(ClientError) as err:
+        s3.upload_part_copy(
+            Bucket="mp", Key="dst.bin", PartNumber=1, UploadId=upload_id,
+            CopySource={"Bucket": "mp", "Key": "absent.bin"},
+        )
+    assert err.value.response["Error"]["Code"] == "NoSuchKey"
+    with pytest.raises(ClientError) as err:
+        s3.get_object(Bucket="mp", Key="dst.bin")
+    assert err.value.response["Error"]["Code"] == "NoSuchKey"
+
+
 def test_multipart_metadata_from_create(s3):
     # like S3, a multipart upload's user-defined metadata is set on the
     # create request and lands on the object at completion
