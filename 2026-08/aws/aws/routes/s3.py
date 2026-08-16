@@ -16,7 +16,7 @@ HeadObject and GetObject
 (both honouring the ``Range`` and the ``If-Match``/``If-None-Match``
 conditional headers), PutObject, CopyObject, DeleteObjects, DeleteObject
 and the multipart upload operations (``CreateMultipartUpload``,
-``UploadPart``, ``UploadPartCopy``, ``ListParts``,
+``UploadPart``, ``UploadPartCopy``, ``ListParts``, ``ListMultipartUploads``,
 ``CompleteMultipartUpload``, ``AbortMultipartUpload``). CopyObject is a
 ``PutObject`` that carries the ``x-amz-copy-source`` header; it copies the
 source object's bytes to the destination, giving the new object a fresh
@@ -33,7 +33,12 @@ same routes: a request is a multipart call when it carries the ``uploadId``
 (or ``uploads``) query parameter - ``UploadPart`` is the PUT, ``ListParts``
 the GET and ``AbortMultipartUpload`` the DELETE that would otherwise be the
 single-part call, and ``CreateMultipartUpload``/``CompleteMultipartUpload``
-are POSTs.  In-flight parts live under the store root's ``uploads/``
+are POSTs.  ``ListMultipartUploads`` is the bucket-level ``GET`` that
+instead carries the ``uploads`` query parameter; it pages like a listing
+(``max-uploads``, ``key-marker``/``upload-id-marker``,
+``IsTruncated``/``NextKeyMarker``/``NextUploadIdMarker``) and is the
+API's only view of in-flight uploads.  In-flight parts live under the store
+root's ``uploads/``
 directory (see ``aws/service/s3.py``), outside the index, so listings
 never see them.
 
@@ -114,6 +119,30 @@ def _list_v1_xml(name: str, prefix: str, objects: list, prefixes: list,
     return "".join(parts)
 
 
+def _uploads_xml(bucket: str, key_marker: str, upload_id_marker: str,
+                 max_uploads: int, truncated: bool, next_key: str | None,
+                 next_upload_id: str | None, prefixes: list, uploads: list) -> str:
+    parts = [f"<ListMultipartUploadsResult {S3_NS}><Bucket>{escape(bucket)}</Bucket>",
+             f"<KeyMarker>{escape(key_marker)}</KeyMarker>",
+             f"<UploadIdMarker>{escape(upload_id_marker)}</UploadIdMarker>",
+             f"<MaxUploads>{max_uploads}</MaxUploads>",
+             f"<IsTruncated>{'true' if truncated else 'false'}</IsTruncated>"]
+    if next_key is not None:
+        parts.append(f"<NextKeyMarker>{escape(next_key)}</NextKeyMarker>")
+        parts.append(f"<NextUploadIdMarker>{escape(next_upload_id)}</NextUploadIdMarker>")
+    parts += [f"<CommonPrefixes><Prefix>{escape(p)}</Prefix></CommonPrefixes>" for p in prefixes]
+    parts += [
+        f"<Upload><Key>{escape(key)}</Key><UploadId>{escape(upload_id)}</UploadId>"
+        "<Initiator><ID>local</ID><DisplayName>local</DisplayName></Initiator>"
+        "<Owner><ID>local</ID><DisplayName>local</DisplayName></Owner>"
+        "<StorageClass>STANDARD</StorageClass>"
+        f"<Initiated>{_iso_z(created)}</Initiated></Upload>"
+        for key, upload_id, created in uploads
+    ]
+    parts.append("</ListMultipartUploadsResult>")
+    return "".join(parts)
+
+
 def _error(status: int, code: str, message: str) -> Response:
     return Response(f"<Error><Code>{code}</Code><Message>{escape(message)}</Message></Error>",
                     status_code=status, media_type="application/xml")
@@ -148,6 +177,8 @@ async def head_bucket(bucket: str) -> Response:
 async def list_bucket_objects(request: Request, bucket: str) -> Response:
     if not store.bucket_exists(bucket):
         return _error(404, "NoSuchBucket", "The specified bucket does not exist.")
+    if "uploads" in request.query_params:
+        return await _list_multipart_uploads(request, bucket)
     prefix = request.query_params.get("prefix", "")
     delimiter = request.query_params.get("delimiter")
     max_keys = _parse_max_keys(request.query_params.get("max-keys"))
@@ -672,6 +703,26 @@ def _abort_upload(bucket: str, key: str, upload_id: str) -> Response:
     if not store.abort_multipart_upload(bucket, key, upload_id):
         return _error(404, "NoSuchUpload", "The specified upload does not exist.")
     return Response(status_code=204)
+
+
+async def _list_multipart_uploads(request: Request, bucket: str) -> Response:
+    """ListMultipartUploads: the bucket's in-flight uploads
+    (``GET /{bucket}?uploads``), paged like a listing via
+    ``max-uploads``/``key-marker``/``upload-id-marker``."""
+    prefix = request.query_params.get("prefix", "")
+    delimiter = request.query_params.get("delimiter")
+    max_uploads = _parse_max_keys(request.query_params.get("max-uploads"))
+    if max_uploads is None:
+        return _error(400, "InvalidArgument",
+                      "Value for max-uploads must be an integer greater than 0.")
+    key_marker = request.query_params.get("key-marker")
+    upload_id_marker = request.query_params.get("upload-id-marker")
+    uploads, prefixes, next_key, next_upload_id, truncated = store.list_multipart_uploads(
+        bucket, prefix, delimiter, key_marker, upload_id_marker, max_uploads)
+    return Response(
+        _uploads_xml(bucket, key_marker or "", upload_id_marker or "", max_uploads,
+                     truncated, next_key, next_upload_id, prefixes, uploads),
+        media_type="application/xml")
 
 
 @router.post("/{bucket}/{key:path}")

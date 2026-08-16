@@ -204,6 +204,80 @@ def test_abort_multipart_upload(s3):
     assert s3.list_objects_v2(Bucket="mp")["KeyCount"] == 0
 
 
+# --- listing in-flight uploads ---
+
+
+def test_list_multipart_uploads(s3):
+    for key in ("a/one.bin", "a/two.bin", "b.bin"):
+        s3.create_multipart_upload(Bucket="mp", Key=key)
+    # a finished object is not in-flight, so it must not appear
+    s3.put_object(Bucket="mp", Key="done.bin", Body=b"done")
+
+    result = s3.list_multipart_uploads(Bucket="mp")
+    assert sorted(u["Key"] for u in result["Uploads"]) == ["a/one.bin", "a/two.bin", "b.bin"]
+    assert result["IsTruncated"] is False
+    assert result["MaxUploads"] == 1000
+    assert all(u["StorageClass"] == "STANDARD" for u in result["Uploads"])
+    assert all(u["Initiated"] for u in result["Uploads"])
+
+
+def test_list_multipart_uploads_prefix_and_delimiter(s3):
+    for key in ("d/a/1.bin", "d/a/2.bin", "d/b/3.bin", "e/4.bin", "root.bin"):
+        s3.create_multipart_upload(Bucket="mp", Key=key)
+
+    prefixed = s3.list_multipart_uploads(Bucket="mp", Prefix="d/")
+    assert sorted(u["Key"] for u in prefixed["Uploads"]) == [
+        "d/a/1.bin", "d/a/2.bin", "d/b/3.bin"]
+
+    delim = s3.list_multipart_uploads(Bucket="mp", Delimiter="/")
+    assert [cp["Prefix"] for cp in delim["CommonPrefixes"]] == ["d/", "e/"]
+    assert [u["Key"] for u in delim.get("Uploads", [])] == ["root.bin"]
+
+
+def test_list_multipart_uploads_pagination(s3):
+    ids = [
+        s3.create_multipart_upload(Bucket="mp", Key=f"pg/{i:02d}.bin")["UploadId"]
+        for i in range(5)
+    ]
+
+    first = s3.list_multipart_uploads(Bucket="mp", Prefix="pg/", MaxUploads=2)
+    assert [u["Key"] for u in first["Uploads"]] == ["pg/00.bin", "pg/01.bin"]
+    assert first["IsTruncated"] is True
+    assert first["NextKeyMarker"] == "pg/01.bin"
+    assert first["NextUploadIdMarker"] == ids[1]
+
+    last = s3.list_multipart_uploads(
+        Bucket="mp", Prefix="pg/",
+        KeyMarker=first["NextKeyMarker"], UploadIdMarker=first["NextUploadIdMarker"])
+    assert [u["Key"] for u in last["Uploads"]] == ["pg/02.bin", "pg/03.bin", "pg/04.bin"]
+    assert last["IsTruncated"] is False
+    assert "NextKeyMarker" not in last
+
+
+def test_list_multipart_uploads_paginator(s3):
+    for i in range(5):
+        s3.create_multipart_upload(Bucket="mp", Key=f"pn/{i:02d}.bin")
+
+    keys = [u["Key"]
+            for page in s3.get_paginator("list_multipart_uploads").paginate(
+                Bucket="mp", Prefix="pn/", PaginationConfig={"PageSize": 2})
+            for u in page.get("Uploads", [])]
+    assert keys == [f"pn/{i:02d}.bin" for i in range(5)]
+
+
+def test_list_multipart_uploads_then_abort_all(s3):
+    # the listing is what makes orphaned uploads cleanable through the API
+    for key in ("c/x.bin", "c/y.bin"):
+        s3.create_multipart_upload(Bucket="mp", Key=key)
+
+    uploads = s3.list_multipart_uploads(Bucket="mp").get("Uploads", [])
+    assert sorted(u["Key"] for u in uploads) == ["c/x.bin", "c/y.bin"]
+    for upload in uploads:
+        s3.abort_multipart_upload(Bucket="mp", Key=upload["Key"], UploadId=upload["UploadId"])
+
+    assert s3.list_multipart_uploads(Bucket="mp").get("Uploads", []) == []
+
+
 # --- errors ---
 
 

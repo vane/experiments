@@ -15,8 +15,8 @@ report `IsTruncated` plus `NextMarker` / `NextContinuationToken`, and a
 page's `MaxKeys` counts objects and common prefixes alike), `HeadObject`,
 `GetObject`, `PutObject`, `CopyObject`, `DeleteObjects` (batch, `?delete=`),
 `DeleteObject` and the multipart upload operations (`CreateMultipartUpload`,
-`UploadPart`, `UploadPartCopy`, `ListParts`, `CompleteMultipartUpload`,
-`AbortMultipartUpload`).
+`UploadPart`, `UploadPartCopy`, `ListParts`, `ListMultipartUploads`,
+`CompleteMultipartUpload`, `AbortMultipartUpload`).
 `GetObject` and
 `HeadObject` honour the `Range` header: a satisfiable range returns 206 with a
 `Content-Range` covering the requested span (`bytes=start-end`,
@@ -37,10 +37,14 @@ object's bytes to the destination and gives the new object a fresh
 `Quiet` suppresses the result list. Signatures are accepted but not verified.
 
 Multipart uploads (``s3.create_multipart_upload`` / ``upload_part`` /
-``upload_part_copy`` / ``list_parts`` / ``complete_multipart_upload`` /
-``abort_multipart_upload``)
-store in-flight parts under ``data/uploads/<bucket>/<upload-id>/`` - outside
-the index, so listings never see them.  Completing an upload assembles the
+``upload_part_copy`` / ``list_multipart_uploads`` / ``list_parts`` /
+``complete_multipart_upload`` / ``abort_multipart_upload``)
+store in-flight parts under ``data/uploads/<bucket>/<upload-id>/`` -
+outside the index, so object listings never see them; ``list_multipart_uploads``
+(``GET /{bucket}?uploads``) is the only API view of the in-flight uploads,
+it pages like a listing (``max-uploads``, ``key-marker`` / ``upload-id-marker``,
+``IsTruncated`` / ``NextKeyMarker`` / ``NextUploadIdMarker``) and is what
+makes orphaned uploads cleanable through the API.  Completing an upload assembles the
 object like ``PutObject`` (with the S3-style ``md5-of-md5s-N`` ETag) and
 drops the parts; aborting just removes them.  ``boto3``'s managed transfers
 (``upload_file`` / ``upload_fileobj``) switch to this path automatically

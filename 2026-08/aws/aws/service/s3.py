@@ -452,3 +452,57 @@ class S3Store:
             return False
         shutil.rmtree(self.upload_dir(bucket, upload_id), ignore_errors=True)
         return True
+
+    def list_multipart_uploads(
+        self, bucket: str, prefix: str, delimiter: str | None,
+        key_marker: str | None, upload_id_marker: str | None, max_keys: int,
+    ) -> tuple[list[tuple[str, str, datetime]], list[str], str | None, str | None, bool]:
+        """One page of the bucket's in-flight uploads, S3-style.
+
+        Uploads are sorted by ``(key, upload_id)``; the marker pair starts
+        the page just after ``(key_marker, upload_id_marker)`` (an empty
+        upload id sorts before any real one, which is how a common prefix
+        pages relative to an upload of the same key), and ``max_keys``
+        bounds how many entries the page holds, uploads and prefixes
+        alike.  Returns the page's uploads ``(key, upload_id, created)``
+        and common prefixes, the next page's markers (``None`` when the
+        page is the last one), and whether entries follow the page.
+        """
+        uploads: list[tuple[str, str, datetime]] = []
+        bucket_uploads = self.root / "uploads" / bucket
+        if bucket_uploads.is_dir():
+            for upload_dir in bucket_uploads.iterdir():
+                if not upload_dir.is_dir():
+                    continue
+                meta = self._load_upload(bucket, upload_dir.name)
+                if meta is None or not meta.get("key", "").startswith(prefix):
+                    continue
+                uploads.append(
+                    (meta["key"], upload_dir.name, _parse_ts(meta["created"]))
+                )
+
+        entries: list[tuple[str, str, datetime | None]] = []
+        prefixes: set[str] = set()
+        for key, upload_id, created in uploads:
+            rest = key[len(prefix):]
+            if delimiter and delimiter in rest:
+                prefixes.add(prefix + rest.split(delimiter, 1)[0] + delimiter)
+            else:
+                entries.append((key, upload_id, created))
+        entries += [(p, "", None) for p in prefixes]
+        entries.sort(key=lambda entry: (entry[0], entry[1]))
+        if key_marker is not None:
+            marker = (key_marker, upload_id_marker or "")
+            entries = [e for e in entries if (e[0], e[1]) > marker]
+        truncated = len(entries) > max_keys
+        page = entries[:max_keys]
+        next_key, next_upload_id = (
+            (page[-1][0], page[-1][1]) if truncated else (None, None)
+        )
+        return (
+            [(k, uid, created) for k, uid, created in page if created is not None],
+            [k for k, _, _ in page if _ is None],
+            next_key,
+            next_upload_id,
+            truncated,
+        )
